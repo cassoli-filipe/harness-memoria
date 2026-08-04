@@ -565,3 +565,26 @@ def test_conformidade_desligavel(projeto: Path):
     escrever_config(projeto, {"adr": {"conformidade_com_template": False}})
     ctx = auditar(projeto)
     assert falhas_com(ctx, "frontmatter sem") == []
+
+
+def test_limiar_do_template_poupa_os_anteriores(projeto: Path):
+    """Convenção nova vale para frente; corpus antigo fica como está.
+
+    Mesma forma de `primeiro_com_regra`. Sem o limiar, adotar o harness num projeto com
+    história exigiria reescrever corpo de ADR aceito — ou inventar seções que nunca existiram.
+    """
+    (projeto / "docs" / "adr" / "template.md").write_text(TEMPLATE, encoding="utf-8")
+    _adr(projeto, "0002")  # também não conforme
+    escrever_config(projeto, {"adr": {"primeiro_com_template": 3}})
+    ctx = auditar(projeto)
+    assert falhas_com(ctx, "frontmatter sem") == [], "0001 e 0002 estão abaixo do limiar"
+    assert falhas_com(ctx, "seção") == []
+
+
+def test_limiar_do_template_exige_dos_novos(projeto: Path):
+    (projeto / "docs" / "adr" / "template.md").write_text(TEMPLATE, encoding="utf-8")
+    _adr(projeto, "0002")
+    escrever_config(projeto, {"adr": {"primeiro_com_template": 2}})
+    achado = falhas_com(auditar(projeto), "0002")
+    assert achado, "o 0002 está no limiar e tem de ser exigido"
+    assert not falhas_com(auditar(projeto), "0001-primeira"), "o 0001 continua poupado"

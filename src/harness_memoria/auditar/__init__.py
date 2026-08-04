@@ -293,7 +293,10 @@ def auditar_conformidade_com_template(ctx: Contexto) -> None:
     if not campos_tpl and not secoes_tpl:
         return
 
-    for _num, d in sorted(ctx.adrs.items()):
+    limiar = ctx.cfg.adr.primeiro_com_template
+    for num, d in sorted(ctx.adrs.items()):
+        if limiar is not None and int(num) < limiar:
+            continue
         nome = d["arquivo"].name
         faltam_campos = sorted(campos_tpl - set(ler_frontmatter(d["texto"])))
         if faltam_campos:

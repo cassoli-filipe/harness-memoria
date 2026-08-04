@@ -117,6 +117,19 @@ class ConfigAdr:
     #:
     #: `Regra` fica fora: ela tem cheque próprio, com limiar próprio (`primeiro_com_regra`).
     conformidade_com_template: bool = True
+    #: A partir de qual número a conformidade é exigida. `None` = todos, correto para corpus
+    #: que já é uniforme (medido no rede_inspira_app: 32 de 32 conformes).
+    #:
+    #: Existe para o caso oposto, que é o comum ao adotar o harness num projeto com história:
+    #: no ValidaNI, medido, só `Contexto` e `Decisão` aparecem nos 23, `Consequências` em 20,
+    #: e a mesma seção tem DOIS nomes no corpus (`Alternativas descartadas` em 10,
+    #: `Alternativas consideradas` em 6). Exigir tudo de todos reprovaria 21 de 23, e
+    #: retrofitar exigiria reescrever corpo de ADR aceito — ou pior, inventar seções de
+    #: alternativas em 7 ADRs que genuinamente nunca discutiram nenhuma.
+    #:
+    #: Mesma forma de `primeiro_com_regra`: a convenção nova vale para frente, e o corpus
+    #: antigo fica como está. O limiar é o que permite ter convenção sem falsificar história.
+    primeiro_com_template: int | None = None
     #: Teto de ADRs no índice injetado. `None` = todos, que é o correto até o corpus
     #: crescer: um corte fixo em 20 escondia 9 dos 29 ADRs do projeto de origem, e entre
     #: os escondidos estava o que substituía a política de PII. Se um dia precisar cortar,
