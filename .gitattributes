@@ -1,0 +1,3 @@
+# LF no repositório para tudo que é texto. O harness é desenvolvido no Windows e o CI roda
+# em Linux: shell dentro de YAML com CRLF quebra de formas difíceis de ler.
+* text=auto eol=lf
