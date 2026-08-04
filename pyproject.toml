@@ -1,0 +1,51 @@
+[project]
+name = "harness-memoria"
+description = "Motor de auditoria e memória de contexto para projetos com ADR e diário de engenharia"
+readme = "README.md"
+requires-python = ">=3.11"
+# Sem `version`: quem consome pin por SHA de commit (git dependency), e o plugin
+# se versiona pelo mesmo SHA. Um número aqui exigiria bump a cada correção para
+# que os consumidores a recebessem — ver `docs` de versionamento de plugin.
+dynamic = ["version"]
+
+#: ZERO dependências, e isto é um requisito, não uma economia. Os hooks rodam fora
+#: do venv do projeto consumidor — o interpretador é o `python` do PATH, que pode
+#: ser qualquer um. Qualquer import de terceiro aqui transforma "instalar o plugin"
+#: em "gerenciar um ambiente por projeto".
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+harness-auditar = "harness_memoria.auditar.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/harness_memoria/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harness_memoria"]
+
+[tool.ruff]
+# 100, não 88: os comentários aqui carregam a justificativa de cada decisão e são em
+# português — prosa pt-BR mede ~15% mais que a mesma frase em inglês. Com 90 a maioria dos
+# apontamentos era comentário estourando por 1 a 5 caracteres, o que empurra para encurtar
+# a explicação em vez de o código.
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixture de teste embute markdown de ADR e de diário em f-string: quebrar a linha mudaria
+# o conteúdo testado.
+"tests/*" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

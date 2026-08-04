@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    name: Testes e lint
+    # Roda nos dois: o harness é desenvolvido no Windows e consumido também em runner
+    # Linux. Os pontos de divergência são reais — `shutil.which` e o `.cmd`/`.exe` dos
+    # formatadores, o `os.open` do lock, e o `reconfigure` de stdout que existe por causa
+    # do cp1252. Testar só num deles deixaria metade do harness sem cobertura.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          prune-cache: true
+      - run: uv sync --extra dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+
+  autotestes:
+    name: Autoteste dos hooks contra um projeto de verdade
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # O `python` puro, sem venv nem dependência: é assim que o Claude Code roda os hooks.
+      # Se algum import de terceiro entrar no pacote por engano, este job é quem pega.
+      - name: Montar um projeto consumidor a partir do template
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/proj/.claude /tmp/proj/scripts
+          cp -r template/docs /tmp/proj/docs
+          cp template/harness.json /tmp/proj/.claude/harness.json
+          MES=$(date +%Y-%m)
+          printf '# Diário · %s\n\n---\n\n## %s-01 — Entrada de exemplo\n\n### Tentativas descartadas\n\n- abordagem X → falhou. **Não repetir.**\n' "$MES" "$MES" \
+            > "/tmp/proj/docs/diario/$MES.md"
+          # `template.md` não precisa ser escondido: o glob de ADR é `[0-9][0-9][0-9][0-9]-*.md`.
+          printf -- '---\nstatus: accepted\ndata: 2026-01-01\n---\n\n# ADR-0001 — Exemplo com solução escolhida\n\n## Plano de Implementação\n\n- feito\n' \
+            > /tmp/proj/docs/adr/0001-exemplo.md
+          cat > /tmp/proj/CLAUDE.md <<EOF
+          # Projeto Consumidor
+
+          ## Regras invioláveis
+
+          **NUNCA**
+
+          - Escrever segredo no repositório. O hook bloqueia e o .gitignore cobre.
+
+          ## Memória
+
+          - [diário](docs/diario/$MES.md)
+
+          ### Qual ADR ler — por caminho que você vai tocar
+
+          | Caminho    | ADRs |
+          | ---------- | ---- |
+          | \`scripts/\` | 0001 |
+          EOF
+      - name: Auditoria do projeto consumidor
+        run: PYTHONPATH=src python -m harness_memoria.auditar --projeto /tmp/proj
+      # O autoteste do session_start confere FIDELIDADE, não só que o hook roda: reprova se
+      # o índice de ADR chegar cortado sem se declarar cortado, se um ADR morto aparecer sem
+      # apontar substituto, ou se o recorte da entrada do diário descartar as seções de
+      # retomada.
+      - name: Autoteste dos cinco hooks
+        run: |
+          set -euo pipefail
+          for h in session_start session_end reafirmar guardar formatar; do
+            echo "--- $h"
+            python "src/harness_memoria/hooks/$h.py" --autoteste --projeto /tmp/proj
+          done
+      # Um projeto sem `.claude/harness.json` não pode receber NADA: nem contexto injetado,
+      # nem bloqueio, nem `docs/` criado. É o gate que permite habilitar o plugin no nível
+      # do usuário, e um furo aqui vaza a política de um projeto para dentro de outro.
+      - name: Gate — hooks inertes em projeto que não adotou o harness
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/alheio && printf '# Outro projeto\n' > /tmp/alheio/CLAUDE.md
+          for h in session_start session_end reafirmar guardar formatar; do
+            saida=$(echo '{"cwd":"/tmp/alheio","tool_name":"Write","session_id":"s","reason":"clear","tool_input":{"file_path":"/tmp/alheio/.env"}}' \
+              | python "src/harness_memoria/hooks/$h.py")
+            if [ -n "$saida" ]; then echo "FALHA: $h produziu saída em projeto sem config: $saida"; exit 1; fi
+          done
+          if [ -d /tmp/alheio/docs ]; then echo "FALHA: um hook criou docs/ num projeto sem config"; exit 1; fi
+          echo "ok — os cinco hooks são inertes sem harness.json"
+
+  manifestos:
+    name: Manifestos do plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: JSON válido e coerente
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, sys
+          from pathlib import Path
+
+          falhas = []
+          mk = json.loads(Path(".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+          pl = json.loads(Path(".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+          hk = json.loads(Path("hooks/hooks.json").read_text(encoding="utf-8"))
+
+          nomes = [p["name"] for p in mk["plugins"]]
+          if pl["name"] not in nomes:
+              falhas.append(f"plugin.json diz `{pl['name']}` e o marketplace lista {nomes}")
+
+          # Versionamento por SHA: um `version` aqui exigiria bump a cada correção, e quem já
+          # instalou ficaria no cache achando que está atualizado.
+          for rotulo, obj in (("plugin.json", pl), *((f"marketplace[{p['name']}]", p) for p in mk["plugins"])):
+              if "version" in obj:
+                  falhas.append(f"{rotulo} declara `version` — remova para versionar por SHA de commit")
+
+          # Todo caminho de hook referenciado tem de existir. Hook apontando para arquivo
+          # inexistente falha em silêncio na sessão do usuário.
+          alvos = 0
+          for evento, entradas in hk["hooks"].items():
+              for entrada in entradas:
+                  for h in entrada["hooks"]:
+                      for arg in h.get("args", []):
+                          if "${CLAUDE_PLUGIN_ROOT}" not in arg:
+                              continue
+                          alvos += 1
+                          rel = arg.replace("${CLAUDE_PLUGIN_ROOT}/", "")
+                          if not Path(rel).exists():
+                              falhas.append(f"hooks.json ({evento}) aponta para `{rel}`, que não existe")
+          if alvos != 5:
+              falhas.append(f"esperava 5 hooks referenciados, achei {alvos}")
+
+          for d in Path("skills").iterdir():
+              if not (d / "SKILL.md").exists():
+                  falhas.append(f"skills/{d.name}/ sem SKILL.md")
+
+          for f in falhas:
+              print(f"x {f}")
+          print("ok — manifestos coerentes" if not falhas else "")
+          sys.exit(1 if falhas else 0)
+          PY

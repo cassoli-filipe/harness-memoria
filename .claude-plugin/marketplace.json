@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "$comment": "Este repositório é marketplace E plugin: `source: \"./\"` aponta para a própria raiz. Nem aqui nem no plugin.json há `version` — sem ela a versão é o SHA do commit, e `/plugin update` traz toda mudança nova. Um número exigiria bump a cada correção para que ela chegasse a quem já instalou.",
+  "name": "harness-casso",
+  "owner": {
+    "name": "Filipe Cassoli",
+    "url": "https://github.com/cassoli-filipe"
+  },
+  "description": "Harness de memória de contexto: ADR e diário reinjetados, invioláveis reafirmadas, auditoria mecânica.",
+  "plugins": [
+    {
+      "name": "harness-memoria",
+      "source": "./",
+      "description": "ADR e diário de engenharia reinjetados no contexto, invioláveis extraídas do CLAUDE.md e reafirmadas dentro da sessão, guardas determinísticas e auditoria mecânica da documentação.",
+      "author": { "name": "Filipe Cassoli" },
+      "category": "workflow",
+      "tags": ["memoria", "adr", "diario", "contexto", "auditoria", "hooks"]
+    }
+  ]
+}

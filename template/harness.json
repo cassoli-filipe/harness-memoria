@@ -1,0 +1,29 @@
+{
+  "$comment": "Config MÍNIMA de exemplo. Todo campo tem default: escreva só o que difere, porque config que repete o default mente sobre ter sido pensada. A presença deste arquivo é o gate — sem ele, todo hook do harness é inerte neste projeto. Referência completa dos campos: `src/harness_memoria/config.py` no repo do harness.",
+  "projeto": "Nome do projeto",
+
+  "reafirmacao": {
+    "$comment": "`secao` casa por prefixo do título no CLAUDE.md. `sub_bloco` isola o bloco de proibição absoluta quando a seção tem mais de um. Só proibição cuja violação é SILENCIOSA merece reafirmação.",
+    "sub_bloco": "**NUNCA**"
+  },
+
+  "adr": {
+    "$comment": "`secao_plano: null` desliga a exigência de `## Plano de Implementação` — necessário quando os ADRs existentes nasceram sem ela. `primeiro_com_regra` é o número a partir do qual `## Regra` passa a valer; os anteriores NÃO são retrofitados.",
+    "secao_plano": "## Plano de Implementação",
+    "primeiro_com_regra": null
+  },
+
+  "guardas": {
+    "$comment": "`.env` e `--no-verify` já são bloqueados pelas universais. Aqui vai o que é proibido NESTE projeto. `exemplo` em `comandos` é usado pelo autoteste — guarda configurada e nunca exercitada é guarda que ninguém sabe se funciona.",
+    "caminhos": [],
+    "comandos": []
+  },
+
+  "formatadores": [
+    {
+      "$comment": "Regra cujo executável não está no PATH é ignorada em silêncio, então várias podem coexistir como fallback. `exige` é um caminho relativo à raiz que precisa existir — evita rodar prettier sem node_modules em toda escrita.",
+      "extensoes": [".py"],
+      "comando": ["ruff", "format", "{arquivo}"]
+    }
+  ]
+}

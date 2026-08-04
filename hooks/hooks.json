@@ -1,0 +1,71 @@
+{
+  "$comment": "Todo hook aqui é inerte num projeto sem `.claude/harness.json`: o gate está em config.carregar(), não neste arquivo. É o que permite habilitar o plugin no nível do usuário sem que ele crie `docs/diario/` em todo repositório que você abrir.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/session_start.py"],
+            "timeout": 20,
+            "statusMessage": "Reinjetando memória do projeto (diário + ADRs)"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/session_end.py"],
+            "timeout": 160,
+            "statusMessage": "Registrando a sessão no diário de engenharia"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/guardar.py"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/formatar.py"],
+            "timeout": 30,
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/reafirmar.py"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
