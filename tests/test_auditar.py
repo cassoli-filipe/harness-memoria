@@ -355,3 +355,40 @@ def test_check_que_explode_entra_como_falha_nomeada(projeto: Path):
     )
     escrever_config(projeto, {"auditoria": {"checks_do_projeto": "scripts/guardas.py"}})
     assert falhas_com(auditar(projeto), "ValueError")
+
+
+# --------------------------------------------------------------------------- #
+# O gate versionado — defeito achado na primeira instalação real
+# --------------------------------------------------------------------------- #
+
+
+def test_harness_json_no_gitignore_reprova(projeto: Path):
+    """Gate fora do versionamento faz o harness ficar inerte em todo checkout novo.
+
+    O `.gitignore` do ValidaNI é `.claude/*` com exceções nomeadas uma a uma, e
+    `harness.json` não estava entre elas. A auditoria passava — ela lê o arquivo em DISCO, e
+    em disco ele estava lá. No runner do CI o checkout viria sem ele, os cinco hooks ficariam
+    silenciosamente inertes, e a auditoria acusaria que o projeto nunca adotou o harness.
+    """
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=projeto, check=True, capture_output=True)
+    (projeto / ".gitignore").write_text(".claude/*\n!.claude/settings.json\n", encoding="utf-8")
+    achado = falhas_com(auditar(projeto), "está no .gitignore")
+    assert achado, "gate ignorado pelo git tem de reprovar"
+    assert "!.claude/harness.json" in achado[0], "a falha tem de dizer COMO corrigir"
+
+
+def test_harness_json_versionado_passa(projeto: Path):
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=projeto, check=True, capture_output=True)
+    (projeto / ".gitignore").write_text(
+        ".claude/*\n!.claude/settings.json\n!.claude/harness.json\n", encoding="utf-8"
+    )
+    assert falhas_com(auditar(projeto), "está no .gitignore") == []
+
+
+def test_sem_git_nao_reprova(projeto: Path):
+    """Projeto fora de git não é motivo para reprovar — não há gitignore para violar."""
+    assert falhas_com(auditar(projeto), "está no .gitignore") == []

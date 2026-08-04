@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -36,7 +37,7 @@ from ..adr import (
     dados_dos_adrs,
     ler_frontmatter,
 )
-from ..config import Config, invioaveis
+from ..config import Config, caminho_config, invioaveis
 from ..diario import SECAO_BECOS, arquivos_do_diario
 
 #: Uma citação a ADR morto é legítima quando a vizinhança diz que houve substituição.
@@ -528,6 +529,40 @@ def auditar_harness(ctx: Contexto) -> None:
             ctx.falhar(f".claude/settings.json referencia `{alvo}`, que não existe")
 
 
+def auditar_config_versionada(ctx: Contexto) -> None:
+    """O `harness.json` não pode estar no `.gitignore`.
+
+    A presença desse arquivo é o gate do harness. Se ele fica de fora do versionamento, o
+    projeto passa a ter dois comportamentos: na máquina de quem o criou, o harness funciona;
+    em qualquer checkout novo — o runner do CI, outra máquina, outra pessoa — os cinco hooks
+    ficam **silenciosamente** inertes e a auditoria reprova acusando que o projeto nunca
+    adotou o harness. Diagnóstico enganoso, e o pior modo de falha que este desenho tem.
+
+    Aconteceu na primeira instalação real: o `.gitignore` do ValidaNI é `.claude/*` com
+    exceções nomeadas uma a uma, e `harness.json` não estava entre elas. Passou por
+    aprovado — a auditoria roda com o arquivo em disco, e em disco ele estava lá.
+    """
+    alvo = caminho_config(ctx.raiz)
+    if not alvo.exists() or not (ctx.raiz / ".git").exists():
+        return
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(ctx.raiz), "check-ignore", "-q", str(alvo)],
+            capture_output=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return  # sem git usável: não é motivo para reprovar
+    if r.returncode == 0:
+        rel = ctx.rel(alvo)
+        ctx.falhar(
+            f"`{rel}` está no .gitignore, mas é o GATE do harness — sem ele versionado, "
+            f"todo checkout novo (o CI inclusive) fica com os hooks inertes em silêncio e a "
+            f"auditoria acusa que o projeto não adotou o harness. Se o .gitignore usa "
+            f"`.claude/*` com exceções, adicione `!{rel}`."
+        )
+
+
 #: Caminho de script citado em prosa ou dentro de bloco de código, COM o prefixo de
 #: diretório quando houver. O `(?:[\w.-]+/)*` é o que estava faltando: com `\bscripts/…` a
 #: primeira instalação real reprovou `python apps/web/scripts/gen-pwa-icons.py` — o `\b`
@@ -603,6 +638,7 @@ CHECKS_GENERICOS = (
     auditar_claude_md,
     auditar_invioaveis,
     auditar_harness,
+    auditar_config_versionada,
 )
 
 
