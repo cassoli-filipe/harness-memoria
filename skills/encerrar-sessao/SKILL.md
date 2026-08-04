@@ -6,6 +6,26 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 
 # Encerrar a sessão com registro deliberado
 
+## Fase 0 — o projeto tem um comando melhor que este?
+
+**Antes de qualquer coisa**, leia `.claude/harness.json` e procure
+`diario.skill_de_encerramento`.
+
+**Se o campo estiver preenchido, PARE.** Diga ao usuário para usar aquele comando e não
+escreva nada. Ele existe porque o projeto tem um fechamento de sessão que faz mais do que
+este — no ValidaNI, o `/handoff` escreve o handoff curado que é reinjetado na próxima sessão,
+o deep-dive de marco em `docs/sessions/` e julga se cabe ADR, além da entrada do diário.
+
+Duas skills competindo pelo mesmo arquivo significa que chamar a errada produz uma entrada
+**pior, no lugar certo** — e nada acusa depois. Ceder a vez é a única coisa correta aqui.
+
+O hook `SessionEnd` continua valendo nesse caso: ele é o **piso**, para a sessão que acabar
+sem ninguém rodar comando nenhum. Piso não compete com escolha deliberada.
+
+Se o campo não existir ou estiver vazio, siga.
+
+## Quando esta skill vale
+
 O hook `SessionEnd` grava uma entrada automaticamente. Esta skill existe para quando você
 ainda tem o contexto completo na cabeça e a sessão merece mais do que o automático — em
 particular quando houve **tentativas descartadas**, que é a seção de maior retorno do diário

@@ -529,6 +529,36 @@ def auditar_harness(ctx: Contexto) -> None:
             ctx.falhar(f".claude/settings.json referencia `{alvo}`, que não existe")
 
 
+def auditar_skill_de_encerramento(ctx: Contexto) -> None:
+    """Se o projeto declara um comando próprio de fechamento, ele tem de existir.
+
+    O `/encerrar-sessao` do plugin cede a vez para esse comando. Se o nome estiver errado ou
+    o arquivo tiver sido renomeado, a cessão manda para o vazio: o usuário recebe "use
+    `/handoff`" e o `/handoff` não existe mais. Ponteiro velho, de novo.
+
+    **Aviso, não falha** — e a razão é honesta: o harness vê os arquivos do projeto, não as
+    skills que outros plugins fornecem. Um nome legítimo vindo de plugin não estaria em
+    `.claude/`, e reprovar o build nesse caso seria um falso positivo sem ação possível.
+    Aviso surfaceia sem bloquear.
+    """
+    nome = ctx.cfg.diario.skill_de_encerramento
+    if not nome:
+        return
+    limpo = nome.strip().lstrip("/")
+    candidatos = [
+        ctx.raiz / ".claude" / "commands" / f"{limpo}.md",
+        ctx.raiz / ".claude" / "skills" / limpo / "SKILL.md",
+    ]
+    if any(p.exists() for p in candidatos):
+        return
+    onde = " ou ".join(f"`{ctx.rel(p)}`" for p in candidatos)
+    ctx.avisar(
+        f"`diario.skill_de_encerramento` aponta para `{nome}`, que não achei em {onde}. "
+        f"Se vem de um plugin, ignore; se era um arquivo do projeto, o nome mudou e o "
+        f"`/encerrar-sessao` vai mandar o usuário para um comando que não existe."
+    )
+
+
 def auditar_config_versionada(ctx: Contexto) -> None:
     """O `harness.json` não pode estar no `.gitignore`.
 
@@ -638,6 +668,7 @@ CHECKS_GENERICOS = (
     auditar_claude_md,
     auditar_invioaveis,
     auditar_harness,
+    auditar_skill_de_encerramento,
     auditar_config_versionada,
 )
 

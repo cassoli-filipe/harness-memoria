@@ -214,3 +214,31 @@ def test_secao_ausente_devolve_lista_vazia(tmp_path: Path):
 def test_max_itens_limita(projeto: Path):
     regras = invioaveis(projeto, ConfigReafirmacao(max_itens=1))
     assert len(regras) == 1
+
+
+def test_qualquer_chave_com_dollar_e_anotacao(projeto: Path):
+    """JSON não tem comentário; a convenção `$` é a única forma de justificar uma escolha.
+
+    Uma por seção não basta — medido na primeira config escrita a sério, que precisou de duas
+    na mesma seção e foi reprovada por `$comment2`.
+    """
+    escrever_config(
+        projeto,
+        {
+            "$schema": "x",
+            "$comment": "a",
+            "$comment2": "b",
+            "$qualquer-coisa": "c",
+            "diario": {"$comment": "a", "$comment2": "b", "$porque": "c", "teto_linhas": 300},
+        },
+    )
+    cfg = carregar(projeto)
+    assert cfg is not None
+    assert cfg.diario.teto_linhas == 300
+
+
+def test_chave_sem_dollar_continua_reprovando(projeto: Path):
+    """A tolerância vale só para `$`: typo em campo real tem de continuar reprovando."""
+    escrever_config(projeto, {"diario": {"comment": "sem dollar", "teto_linhas": 300}})
+    with pytest.raises(ErroDeConfig, match="comment"):
+        carregar(projeto)

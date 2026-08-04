@@ -2,6 +2,12 @@
   "$comment": "Config MÍNIMA de exemplo. Todo campo tem default: escreva só o que difere, porque config que repete o default mente sobre ter sido pensada. A presença deste arquivo é o gate — sem ele, todo hook do harness é inerte neste projeto. Referência completa dos campos: `src/harness_memoria/config.py` no repo do harness.",
   "projeto": "Nome do projeto",
 
+  "diario": {
+    "$comment": "`skill_de_encerramento` faz o `/encerrar-sessao` do plugin CEDER A VEZ para um comando do projeto que faça mais (ex.: `/handoff`). Sem isso, duas skills competem pelo mesmo arquivo de diário e chamar a errada produz uma entrada pior no lugar certo, sem nada acusar. O hook `SessionEnd` continua valendo — ele é o piso, não um concorrente. `injetar_ultima_entrada: false` quando outro mecanismo do projeto já reinjeta a narrativa da sessão anterior.",
+    "skill_de_encerramento": null,
+    "injetar_ultima_entrada": true
+  },
+
   "reafirmacao": {
     "$comment": "`secao` casa por prefixo do título no CLAUDE.md. `sub_bloco` isola o bloco de proibição absoluta quando a seção tem mais de um. Só proibição cuja violação é SILENCIOSA merece reafirmação.",
     "sub_bloco": "**NUNCA**"

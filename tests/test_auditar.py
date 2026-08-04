@@ -392,3 +392,44 @@ def test_harness_json_versionado_passa(projeto: Path):
 def test_sem_git_nao_reprova(projeto: Path):
     """Projeto fora de git não é motivo para reprovar — não há gitignore para violar."""
     assert falhas_com(auditar(projeto), "está no .gitignore") == []
+
+
+# --------------------------------------------------------------------------- #
+# Cessão de vez para o comando de fechamento do projeto
+# --------------------------------------------------------------------------- #
+
+
+def test_skill_de_encerramento_inexistente_avisa_sem_reprovar(projeto: Path):
+    """Aviso e não falha: o harness não vê skills que vêm de outros plugins.
+
+    Um nome legítimo fornecido por plugin não estaria em `.claude/`, e reprovar seria falso
+    positivo sem ação possível. Mas o nome errado precisa aparecer, porque a cessão de vez
+    manda o usuário para um comando que não existe.
+    """
+    escrever_config(projeto, {"diario": {"skill_de_encerramento": "/nao-existe"}})
+    ctx = auditar(projeto)
+    assert ctx.falhas == [], "não pode reprovar o build"
+    assert [a for a in ctx.avisos if "skill_de_encerramento" in a], f"avisos: {ctx.avisos}"
+
+
+def test_skill_de_encerramento_como_command_do_projeto_passa(projeto: Path):
+    cmd = projeto / ".claude" / "commands"
+    cmd.mkdir(parents=True)
+    (cmd / "handoff.md").write_text("# handoff\n", encoding="utf-8")
+    escrever_config(projeto, {"diario": {"skill_de_encerramento": "/handoff"}})
+    ctx = auditar(projeto)
+    assert [a for a in ctx.avisos if "skill_de_encerramento" in a] == []
+
+
+def test_skill_de_encerramento_como_skill_do_projeto_passa(projeto: Path):
+    d = projeto / ".claude" / "skills" / "fechar"
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text("# fechar\n", encoding="utf-8")
+    escrever_config(projeto, {"diario": {"skill_de_encerramento": "fechar"}})
+    ctx = auditar(projeto)
+    assert [a for a in ctx.avisos if "skill_de_encerramento" in a] == []
+
+
+def test_sem_skill_de_encerramento_nao_avisa(projeto: Path):
+    ctx = auditar(projeto)
+    assert [a for a in ctx.avisos if "skill_de_encerramento" in a] == []

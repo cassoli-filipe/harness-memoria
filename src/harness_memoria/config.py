@@ -77,6 +77,19 @@ class ConfigDiario:
     #: contribui só o que o outro não cobre — índice de ADR e digest de becos — em vez
     #: de dizer a mesma coisa duas vezes no mesmo contexto.
     injetar_ultima_entrada: bool = True
+    #: Nome do comando/skill DO PROJETO que fecha a sessão, quando existe um melhor que o
+    #: `/encerrar-sessao` genérico — ex.: `"/handoff"`. Quando preenchido, a skill do plugin
+    #: **cede a vez** em vez de competir.
+    #:
+    #: Existe porque o ValidaNI ficou com três coisas escrevendo no mesmo arquivo de diário:
+    #: o `/handoff` (que faz mais — handoff curado, deep-dive de marco, julgamento de ADR),
+    #: o `/encerrar-sessao` do plugin e o hook `SessionEnd`. Duas skills concorrentes para o
+    #: mesmo alvo significam que chamar a errada produz uma entrada pior, no lugar certo —
+    #: e nada acusa.
+    #:
+    #: O hook `SessionEnd` **continua** valendo: ele é o piso, não um concorrente. Quem cede
+    #: é só a skill.
+    skill_de_encerramento: str | None = None
 
 
 @dataclass(frozen=True)
@@ -218,7 +231,7 @@ def carregar(raiz: Path) -> Config | None:
     if not isinstance(bruto, dict):
         raise ErroDeConfig(f"{p} deveria ser um objeto JSON")
 
-    desconhecidas = set(bruto) - _CHAVES_TOPO - {"$schema", "$comment"}
+    desconhecidas = {k for k in bruto if k not in _CHAVES_TOPO and not _e_anotacao(k)}
     if desconhecidas:
         raise ErroDeConfig(
             f"{p}: chave(s) desconhecida(s) {sorted(desconhecidas)} — "
@@ -237,6 +250,17 @@ def carregar(raiz: Path) -> Config | None:
     )
 
 
+def _e_anotacao(chave: str) -> bool:
+    """Chave de anotação, ignorada pela validação: qualquer uma que comece com `$`.
+
+    Não é só `$comment`: JSON não tem comentário, então a única forma de justificar uma
+    escolha ao lado dela é uma chave inventada — e uma por seção não basta. Isto foi medido
+    na primeira config escrita a sério, que precisou de duas na mesma seção e foi reprovada
+    por `$comment2`. Convenção de `$schema`/`$id`, estendida.
+    """
+    return chave.startswith("$")
+
+
 def _montar(classe, bruto, secao: str, arquivo: Path):
     """Instancia uma dataclass de config, reprovando chave desconhecida na seção."""
     if bruto is None:
@@ -244,13 +268,13 @@ def _montar(classe, bruto, secao: str, arquivo: Path):
     if not isinstance(bruto, dict):
         raise ErroDeConfig(f"{arquivo}: `{secao}` deveria ser um objeto")
     campos = {f.name for f in classe.__dataclass_fields__.values()}
-    desconhecidas = set(bruto) - campos - {"$comment"}
+    desconhecidas = {k for k in bruto if k not in campos and not _e_anotacao(k)}
     if desconhecidas:
         raise ErroDeConfig(
             f"{arquivo}: `{secao}` tem chave(s) desconhecida(s) {sorted(desconhecidas)} "
             f"— aceitas: {sorted(campos)}"
         )
-    limpo = {k: v for k, v in bruto.items() if k != "$comment"}
+    limpo = {k: v for k, v in bruto.items() if not _e_anotacao(k)}
     # Tupla em vez de lista: as dataclasses são frozen e usadas como valor.
     for k, v in list(limpo.items()):
         if isinstance(v, list):
