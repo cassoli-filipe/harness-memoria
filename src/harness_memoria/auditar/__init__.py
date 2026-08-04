@@ -528,8 +528,18 @@ def auditar_harness(ctx: Contexto) -> None:
             ctx.falhar(f".claude/settings.json referencia `{alvo}`, que não existe")
 
 
+#: Caminho de script citado em prosa ou dentro de bloco de código, COM o prefixo de
+#: diretório quando houver. O `(?:[\w.-]+/)*` é o que estava faltando: com `\bscripts/…` a
+#: primeira instalação real reprovou `python apps/web/scripts/gen-pwa-icons.py` — o `\b`
+#: casava depois da barra de `apps/web/`, o prefixo era descartado e o auditor procurava
+#: `scripts/gen-pwa-icons.py` na raiz. Falso positivo é pior que cheque ausente: ele ensina
+#: a ignorar o auditor.
+#: O lookbehind garante que o casamento começa numa fronteira de caminho, e não no meio.
+_SCRIPT_CITADO = re.compile(r"(?<![\w./-])((?:[\w.-]+/)*scripts/[\w./-]+\.(?:py|mjs|sh|ts))")
+
+
 def auditar_scripts_citados(ctx: Contexto) -> None:
-    """Todo `scripts/*` citado num arquivo operacional existe.
+    """Todo script citado num arquivo operacional existe.
 
     Checador de link markdown só vê link; comando dentro de bloco de código passava batido.
     Um script renomeado deixaria uma instrução que só falha quando alguém tenta executá-la —
@@ -540,7 +550,7 @@ def auditar_scripts_citados(ctx: Contexto) -> None:
             texto = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for alvo in sorted(set(re.findall(r"\bscripts/[\w./-]+\.(?:py|mjs|sh|ts)", texto))):
+        for alvo in sorted(set(_SCRIPT_CITADO.findall(texto))):
             if not (ctx.raiz / alvo).exists():
                 ctx.falhar(f"{ctx.rel(p)} cita `{alvo}`, que não existe")
 

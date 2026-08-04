@@ -286,6 +286,34 @@ def test_script_citado_e_inexistente_reprova(projeto: Path):
     assert falhas_com(auditar(projeto), "scripts/checar.py")
 
 
+def test_script_com_prefixo_de_diretorio_nao_da_falso_positivo(projeto: Path):
+    r"""Regressão da primeira instalação real: `apps/web/scripts/x.py` existia e reprovava.
+
+    Com `\bscripts/…` o `\b` casava depois da barra de `apps/web/`, o prefixo era descartado
+    e o auditor procurava `scripts/x.py` na raiz. Falso positivo é pior que cheque ausente:
+    ensina a ignorar o auditor.
+    """
+    alvo = projeto / "apps" / "web" / "scripts"
+    alvo.mkdir(parents=True)
+    (alvo / "gen-icons.py").write_text("# stub\n", encoding="utf-8")
+    p = projeto / "CLAUDE.md"
+    p.write_text(
+        p.read_text(encoding="utf-8") + "\nRode `python apps/web/scripts/gen-icons.py`.\n",
+        encoding="utf-8",
+    )
+    assert falhas_com(auditar(projeto), "gen-icons.py") == []
+
+
+def test_script_com_prefixo_de_diretorio_e_inexistente_reprova(projeto: Path):
+    """O prefixo não vira desculpa para não checar: o caminho completo é verificado."""
+    p = projeto / "CLAUDE.md"
+    p.write_text(
+        p.read_text(encoding="utf-8") + "\nRode `python apps/web/scripts/fantasma.py`.\n",
+        encoding="utf-8",
+    )
+    assert falhas_com(auditar(projeto), "apps/web/scripts/fantasma.py")
+
+
 def test_claude_md_acima_do_teto_reprova(projeto: Path):
     p = projeto / "CLAUDE.md"
     p.write_text(p.read_text(encoding="utf-8") + "\n" * 300, encoding="utf-8")
