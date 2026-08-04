@@ -64,11 +64,23 @@ python src/harness_memoria/hooks/session_start.py --autoteste --projeto /caminho
 PYTHONPATH=src python -m harness_memoria.auditar --projeto /caminho/do/projeto
 
 git commit && git push
-claude plugin marketplace update harness-casso   # e reinicie a sessão
+
+# São DOIS comandos, e o primeiro sozinho não faz nada visível:
+claude plugin marketplace update harness-casso        # só recarrega o catálogo
+claude plugin update harness-memoria@harness-casso    # é este que troca a versão
+# depois, reinicie a sessão
 ```
 
-O CI dos projetos consumidores pega o commit novo sozinho, sem `version` para bumpar.
-`claude plugin details harness-memoria` mostra o inventário de componentes e o custo em tokens.
+O **id qualificado é obrigatório** no `plugin update`: `claude plugin update harness-memoria`
+falha com `Plugin "harness-memoria" not found`. O cache guarda uma pasta por SHA e mantém a
+anterior por ~2 semanas, então rollback é trocar a versão instalada de volta.
+
+O CI dos projetos consumidores pega o commit novo sozinho, sem `version` para bumpar — só a
+sessão do Claude Code precisa dos dois comandos acima.
+
+`claude plugin details harness-memoria` mostra o inventário e o custo: **~469 tokens sempre
+ligados** (as 4 descrições de skill), mais 1,1k–2,8k quando uma skill é invocada. Os 5 hooks
+não custam contexto — rodam fora do modelo.
 
 ## O gate
 
