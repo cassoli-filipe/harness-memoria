@@ -28,10 +28,15 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 NOME_ARQUIVO = "harness.json"
+
+#: Onde os cheques de fronteira do projeto ficam, por convenção. Descoberto quando
+#: `auditoria.checks_do_projeto` não é declarado — foi o único campo que os dois primeiros
+#: projetos escreveram com valor idêntico, e convenção não se repete em config.
+CAMINHO_CONVENCIONAL_CHECKS = "scripts/guardas_do_projeto.py"
 
 #: Chaves aceitas no topo do `harness.json`. Chave desconhecida REPROVA em vez de ser
 #: ignorada: config silenciosamente inerte por causa de um typo é a classe de bug mais
@@ -157,9 +162,16 @@ class ConfigReafirmacao:
     #: meia proibição lida como permissão.
     teto_item_chars: int = 150
     max_itens: int = 8
-    #: Linha final da mensagem, para mandar ao retrieval por caminho em vez de repetir
-    #: regra de domínio. `None` omite.
-    rodape: str | None = None
+    #: Linha final da mensagem, para mandar ao retrieval por caminho em vez de repetir regra
+    #: de domínio. `None` omite.
+    #:
+    #: O default não é vazio porque os dois primeiros projetos escreveram a MESMA frase com
+    #: palavras diferentes ("vai mudar padrão" / "vai mexer"), e ela é segura em qualquer
+    #: projeto: o mapa caminho→ADR que ela cita é exigido por `auditar_mapa_de_adr_por_caminho`,
+    #: então não há como o rodapé apontar para algo que não existe.
+    rodape: str | None = (
+        "Vai mexer em algum caminho? O mapa caminho→ADR do CLAUDE.md diz qual ADR ler."
+    )
     habilitado: bool = True
 
 
@@ -198,8 +210,17 @@ class ConfigAuditoria:
     #: para eliminar a repetição; dá para proibir que discordem. Cada item: {rotulo, regex}
     #: com um grupo de captura.
     fatos_compartilhados: tuple[dict, ...] = ()
-    #: Módulo Python com checks extra do projeto, resolvido a partir da raiz.
-    #: Ex.: "scripts/guardas_do_projeto.py". Deve expor `registrar(ctx)`.
+    #: Módulo Python com checks extra do projeto, resolvido a partir da raiz. Deve expor
+    #: `registrar(ctx)`.
+    #:
+    #: `None` NÃO significa "sem checks de projeto": significa "descubra por convenção". Se
+    #: `CAMINHO_CONVENCIONAL_CHECKS` existir na raiz, ele é usado. Foi o único campo que os
+    #: dois primeiros projetos declararam com valor idêntico — então é convenção, e convenção
+    #: não se repete em config.
+    #:
+    #: A distinção que importa: descoberto-e-ausente é silêncio (projeto sem fronteira própria
+    #: é normal); DECLARADO-e-ausente reprova, porque alguém escreveu o caminho e o cheque não
+    #: rodou. Fazer o default apontar para o caminho convencional quebraria todo projeto novo.
     checks_do_projeto: str | None = None
     exigir_mapa_por_caminho: bool = True
 
@@ -262,6 +283,12 @@ def carregar(raiz: Path) -> Config | None:
             f"aceitas: {sorted(_CHAVES_TOPO)}"
         )
 
+    auditoria = _montar(ConfigAuditoria, bruto.get("auditoria"), "auditoria", p)
+    if auditoria.checks_do_projeto is None and (raiz / CAMINHO_CONVENCIONAL_CHECKS).exists():
+        # Descoberta por convenção. Só quando NÃO declarado: caminho declarado e ausente
+        # continua reprovando, porque aí alguém escreveu o caminho e o cheque não rodou.
+        auditoria = replace(auditoria, checks_do_projeto=CAMINHO_CONVENCIONAL_CHECKS)
+
     return Config(
         raiz=raiz,
         projeto=str(bruto.get("projeto") or raiz.name),
@@ -269,7 +296,7 @@ def carregar(raiz: Path) -> Config | None:
         adr=_montar(ConfigAdr, bruto.get("adr"), "adr", p),
         reafirmacao=_montar(ConfigReafirmacao, bruto.get("reafirmacao"), "reafirmacao", p),
         guardas=_montar(ConfigGuardas, bruto.get("guardas"), "guardas", p),
-        auditoria=_montar(ConfigAuditoria, bruto.get("auditoria"), "auditoria", p),
+        auditoria=auditoria,
         formatadores=tuple(bruto.get("formatadores") or ()),
     )
 

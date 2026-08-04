@@ -242,3 +242,65 @@ def test_chave_sem_dollar_continua_reprovando(projeto: Path):
     escrever_config(projeto, {"diario": {"comment": "sem dollar", "teto_linhas": 300}})
     with pytest.raises(ErroDeConfig, match="comment"):
         carregar(projeto)
+
+
+# --------------------------------------------------------------------------- #
+# Convenção em vez de config global
+# --------------------------------------------------------------------------- #
+
+
+def test_checks_do_projeto_descoberto_por_convencao(projeto: Path):
+    """Foi o ÚNICO campo que os dois primeiros projetos declararam com valor idêntico.
+
+    Convenção não se repete em config — e uma camada global de política para um campo só
+    tornaria "de onde vem esse valor" uma pergunta de três fontes.
+    """
+    (projeto / "scripts" / "guardas_do_projeto.py").write_text(
+        "def registrar(ctx):\n    pass\n", encoding="utf-8"
+    )
+    cfg = carregar(projeto)
+    assert cfg is not None
+    assert cfg.auditoria.checks_do_projeto == "scripts/guardas_do_projeto.py"
+
+
+def test_sem_o_arquivo_convencional_fica_none(projeto: Path):
+    """Projeto sem fronteira própria é normal: descoberto-e-ausente é silêncio."""
+    cfg = carregar(projeto)
+    assert cfg is not None
+    assert cfg.auditoria.checks_do_projeto is None
+
+
+def test_declarado_e_ausente_continua_reprovando(projeto: Path):
+    """A distinção que importa: DECLARADO e ausente reprova, porque o cheque não rodou.
+
+    Se o default apontasse para o caminho convencional, todo projeto novo reprovaria.
+    """
+    from harness_memoria.auditar import Contexto, rodar
+
+    escrever_config(projeto, {"auditoria": {"checks_do_projeto": "scripts/fantasma.py"}})
+    cfg = carregar(projeto)
+    ctx = Contexto(raiz=projeto, cfg=cfg)
+    rodar(ctx)
+    assert [f for f in ctx.falhas if "NÃO rodaram" in f]
+
+
+def test_declaracao_explicita_ganha_da_convencao(projeto: Path):
+    (projeto / "scripts" / "guardas_do_projeto.py").write_text(
+        "def registrar(ctx):\n    pass\n", encoding="utf-8"
+    )
+    (projeto / "scripts" / "outro.py").write_text(
+        "def registrar(ctx):\n    pass\n", encoding="utf-8"
+    )
+    escrever_config(projeto, {"auditoria": {"checks_do_projeto": "scripts/outro.py"}})
+    assert carregar(projeto).auditoria.checks_do_projeto == "scripts/outro.py"
+
+
+def test_rodape_tem_default_e_cita_o_mapa(projeto: Path):
+    """Os dois primeiros projetos escreveram a MESMA frase com palavras diferentes.
+
+    É segura como default porque o mapa que ela cita é exigido pela auditoria — não há como
+    o rodapé apontar para algo que não existe.
+    """
+    cfg = carregar(projeto)
+    assert cfg.reafirmacao.rodape
+    assert "caminho→ADR" in cfg.reafirmacao.rodape
