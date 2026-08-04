@@ -104,6 +104,14 @@ def dados_dos_adrs(pasta: Path) -> dict[str, dict]:
             "titulo": titulo_de(texto, num) or fm.get("titulo", ""),
             "substituido_por": re.findall(r"(\d{4})", fm.get("substituido-por", "")),
             "substitui": re.findall(r"(\d{4})", fm.get("substitui", "")),
+            # Emenda é o meio-termo entre "vale inteiro" e "não siga": um ADR novo muda UMA
+            # das decisões de um ADR de várias. Marcar o antigo como `superseded` mentiria
+            # sobre as outras; não marcar nada deixaria quem lê a decisão revogada achando
+            # que ela vale. Os dois casos que criaram isto: a decisão 3 da 0014 do ValidaNI,
+            # e as quatro ADRs de harness do rede_inspira_app, cujo mecanismo saiu do repo
+            # sem que nenhuma delas fosse revertida.
+            "emenda": re.findall(r"(\d{4})", fm.get("emenda", "")),
+            "emendado_por": re.findall(r"(\d{4})", fm.get("emendado-por", "")),
             "texto": texto,
         }
     return saida

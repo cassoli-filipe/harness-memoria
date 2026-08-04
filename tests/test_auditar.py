@@ -433,3 +433,62 @@ def test_skill_de_encerramento_como_skill_do_projeto_passa(projeto: Path):
 def test_sem_skill_de_encerramento_nao_avisa(projeto: Path):
     ctx = auditar(projeto)
     assert [a for a in ctx.avisos if "skill_de_encerramento" in a] == []
+
+
+# --------------------------------------------------------------------------- #
+# Emenda — o meio-termo entre "vale inteiro" e "não siga"
+# --------------------------------------------------------------------------- #
+
+
+def _adr(projeto: Path, num: str, frontmatter: str = "", titulo: str = "Decisão") -> None:
+    (projeto / "docs" / "adr" / f"{num}-x.md").write_text(
+        f"---\nstatus: accepted\ndata: 2026-02-01\n{frontmatter}---\n\n"
+        f"# ADR-{num} — {titulo} com solução\n\n## Plano de Implementação\n\n- feito\n",
+        encoding="utf-8",
+    )
+    idx = projeto / "docs" / "adr" / "README.md"
+    idx.write_text(
+        idx.read_text(encoding="utf-8") + f"| [{num}]({num}-x.md) | {titulo} | accepted |\n",
+        encoding="utf-8",
+    )
+
+
+def test_emenda_unilateral_reprova(projeto: Path):
+    """O antigo tem de saber que uma decisão dele mudou; senão a parte errada fica cercada
+    de partes certas, que é a pior forma de ponteiro velho."""
+    _adr(projeto, "0002", "emenda: [ADR-0001]\n")
+    achado = falhas_com(auditar(projeto), "emenda unilateral")
+    assert achado
+    assert "não fica sabendo" in achado[0]
+
+
+def test_emenda_bidirecional_passa(projeto: Path):
+    _adr(projeto, "0002", "emenda: [ADR-0001]\n")
+    p = projeto / "docs" / "adr" / "0001-primeira.md"
+    p.write_text(
+        p.read_text(encoding="utf-8").replace(
+            "data: 2026-01-15", "data: 2026-01-15\nemendado-por: [ADR-0002]"
+        ),
+        encoding="utf-8",
+    )
+    assert falhas_com(auditar(projeto), "emenda") == []
+
+
+def test_emenda_para_adr_inexistente_reprova(projeto: Path):
+    _adr(projeto, "0002", "emenda: [ADR-0099]\n")
+    assert falhas_com(auditar(projeto), "que não existe")
+
+
+def test_emenda_nao_exige_status_morto(projeto: Path):
+    """Emendado continua `accepted`: é o ponto de existir emenda em vez de supersessão."""
+    _adr(projeto, "0002", "emenda: [ADR-0001]\n")
+    p = projeto / "docs" / "adr" / "0001-primeira.md"
+    p.write_text(
+        p.read_text(encoding="utf-8").replace(
+            "data: 2026-01-15", "data: 2026-01-15\nemendado-por: [ADR-0002]"
+        ),
+        encoding="utf-8",
+    )
+    ctx = auditar(projeto)
+    assert ctx.adrs["0001"]["status"] == "accepted"
+    assert falhas_com(ctx, "esperado 'superseded'") == []

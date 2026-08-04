@@ -144,6 +144,7 @@ def auditar_adrs(ctx: Contexto) -> None:
         ctx.avisar(f"lacuna na numeração de ADR: {', '.join(sorted(faltando))}")
 
     _auditar_supersessao(ctx, dados)
+    _auditar_emenda(ctx, dados)
 
 
 def _auditar_supersessao(ctx: Contexto, dados: dict) -> None:
@@ -185,6 +186,40 @@ def _auditar_supersessao(ctx: Contexto, dados: dict) -> None:
                 nivel(
                     f"supersessão unilateral: ADR-{num} diz 'substitui ADR-{alvo}', "
                     f"mas ADR-{alvo} não declara 'substituido-por: [ADR-{num}]'"
+                )
+
+
+def _auditar_emenda(ctx: Contexto, dados: dict) -> None:
+    """`emenda:` e `emendado-por:` andam em par, como a supersessão.
+
+    Emenda é o meio-termo entre "vale inteiro" e "não siga": um ADR novo muda UMA das
+    decisões de um ADR que tem várias. Marcar o antigo como `superseded` mentiria sobre as
+    decisões dele que seguem valendo; não marcar nada deixaria quem lê a decisão revogada
+    achando que ela vale — que é o dano de ponteiro velho, na pior forma, porque a parte
+    errada fica cercada de partes certas.
+
+    Nasceu como cheque de projeto no ValidaNI (a ADR-0023 emendou a decisão 3 da ADR-0014) e
+    veio para o motor no segundo caso: no rede_inspira_app, quatro ADRs de harness tiveram o
+    mecanismo movido para fora do repositório sem que nenhuma decisão fosse revertida. Dois
+    consumidores, e o cheque é puro mecanismo de frontmatter — igual ao de supersessão.
+    """
+    for num, d in sorted(dados.items()):
+        for alvo in d["emenda"]:
+            if alvo not in dados:
+                ctx.falhar(f"ADR-{num} diz emendar ADR-{alvo}, que não existe")
+            elif num not in dados[alvo]["emendado_por"]:
+                ctx.falhar(
+                    f"emenda unilateral: ADR-{num} declara `emenda: [ADR-{alvo}]`, mas "
+                    f"ADR-{alvo} não declara `emendado-por: [ADR-{num}]` — quem ler o "
+                    f"ADR-{alvo} não fica sabendo que uma decisão dele mudou"
+                )
+        for alvo in d["emendado_por"]:
+            if alvo not in dados:
+                ctx.falhar(f"ADR-{num} diz ser emendado por ADR-{alvo}, que não existe")
+            elif num not in dados[alvo]["emenda"]:
+                ctx.falhar(
+                    f"emenda unilateral: ADR-{num} declara `emendado-por: [ADR-{alvo}]`, "
+                    f"mas ADR-{alvo} não declara `emenda: [ADR-{num}]`"
                 )
 
 
