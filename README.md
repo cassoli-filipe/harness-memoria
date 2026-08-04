@@ -22,11 +22,19 @@ mecanismo vazio: ele começa a pagar depois de umas dez sessões registradas, qu
 
 ## Dois canais de entrega, e por quê
 
-**Plugin** — entrega os hooks e as skills para a sessão do Claude Code.
+**Plugin** — entrega os hooks e as skills para a sessão do Claude Code. O marketplace se
+chama `harness-casso`; o plugin, `harness-memoria`. Duas formas de registrar, e **só uma por
+vez**: um usuário registra um único marketplace por nome, então o segundo `add` substitui o
+primeiro.
 
-```
-/plugin marketplace add cassoli-filipe/harness-memoria
-/plugin install harness-memoria@harness-memoria
+```bash
+# a) pasta local — aponta para este clone, sem autenticação nenhuma
+claude plugin marketplace add C:/Users/casso/projetos/harness-memoria
+
+# b) GitHub — o que funciona em outra máquina
+claude plugin marketplace add cassoli-filipe/harness-memoria
+
+claude plugin install harness-memoria@harness-casso --scope user
 ```
 
 **Pacote Python** — entrega o motor de auditoria para o CI.
@@ -39,6 +47,28 @@ python -m harness_memoria.auditar
 Dois canais porque `${CLAUDE_PLUGIN_ROOT}` é efêmero e muda a cada atualização do plugin:
 o CI não pode depender dele. É o mesmo código, consumido de duas formas — não são duas
 implementações.
+
+## Editar o harness
+
+**Commit é o que publica, inclusive na fonte `directory`.** Medido em 2026-08-04: mesmo
+apontando o marketplace para esta pasta, o `install` **copia** para
+`~/.claude/plugins/cache/harness-casso/harness-memoria/<sha>/`, e a versão é o SHA do commit.
+Edição na árvore de trabalho não chega ao cache nem depois de `marketplace update` — quem quer
+iterar sem commitar roda o código direto, por `PYTHONPATH`:
+
+```bash
+uv run pytest && uv run ruff check . && uv run ruff format --check .
+
+# contra um projeto de verdade, que é o que o pytest não cobre
+python src/harness_memoria/hooks/session_start.py --autoteste --projeto /caminho/do/projeto
+PYTHONPATH=src python -m harness_memoria.auditar --projeto /caminho/do/projeto
+
+git commit && git push
+claude plugin marketplace update harness-casso   # e reinicie a sessão
+```
+
+O CI dos projetos consumidores pega o commit novo sozinho, sem `version` para bumpar.
+`claude plugin details harness-memoria` mostra o inventário de componentes e o custo em tokens.
 
 ## O gate
 
