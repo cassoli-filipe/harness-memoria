@@ -249,6 +249,69 @@ def _auditar_regra(ctx: Contexto, f: Path, texto: str) -> None:
         )
 
 
+#: Seções do template que NÃO entram na conformidade porque já têm cheque dedicado, com
+#: limiar próprio. `Regra` vale a partir de `adr.primeiro_com_regra` e não se retrofita.
+_SECOES_COM_CHEQUE_PROPRIO = {"Regra"}
+
+
+def auditar_conformidade_com_template(ctx: Contexto) -> None:
+    """Todo ADR tem os campos de frontmatter e as seções `##` do `template.md` do projeto.
+
+    O template É a declaração da convenção daquele projeto, então derivar dele custa zero
+    configuração e não apodrece junto: mexer no template muda o que é exigido, o que é
+    exatamente o comportamento desejado.
+
+    Nasceu de um erro concreto durante a extração do harness. Um ADR novo saiu com 3 dos 7
+    campos de frontmatter e uma estrutura de seções inventada — 8 seções com nomes próprios em
+    vez das 10 do projeto, sem `Critérios de Verificação` nem `Referências` — porque foi
+    redigido a partir do template genérico do pacote em vez do template do repositório. Nada
+    acusou, e quem leu percebeu na hora que estava mais pobre que os 31 anteriores.
+
+    "Genérico no lugar do específico" é a regressão que uma extração de mecanismo mais
+    arrisca causar. Este cheque é a guarda contra ela.
+
+    Campo ou seção EXTRA passa: `emenda:` não está no template e é legítimo. O que se exige é
+    que nada do template falte.
+    """
+    if not ctx.cfg.adr.conformidade_com_template:
+        return
+    template = ctx.cfg.pasta_adr / "template.md"
+    if not template.exists():
+        # Sem template não há convenção declarada, e inventar uma seria pior que não checar.
+        return
+    try:
+        texto_tpl = template.read_text(encoding="utf-8")
+    except OSError:
+        return
+
+    campos_tpl = set(ler_frontmatter(texto_tpl))
+    secoes_tpl = [
+        s
+        for s in re.findall(r"^## (.+)$", texto_tpl, re.MULTILINE)
+        if s not in _SECOES_COM_CHEQUE_PROPRIO
+    ]
+    if not campos_tpl and not secoes_tpl:
+        return
+
+    for _num, d in sorted(ctx.adrs.items()):
+        nome = d["arquivo"].name
+        faltam_campos = sorted(campos_tpl - set(ler_frontmatter(d["texto"])))
+        if faltam_campos:
+            ctx.falhar(
+                f"{nome}: frontmatter sem {faltam_campos} — o `template.md` do projeto declara "
+                f"{sorted(campos_tpl)}, e os outros ADRs seguem. Campo extra é permitido; "
+                f"faltar não."
+            )
+        presentes = set(re.findall(r"^## (.+)$", d["texto"], re.MULTILINE))
+        faltam_secoes = [s for s in secoes_tpl if s not in presentes]
+        if faltam_secoes:
+            ctx.falhar(
+                f"{nome}: sem a(s) seção(ões) {faltam_secoes} do `template.md`. Escrever ADR "
+                f"a partir de outro modelo produz registro mais pobre que os vizinhos, e é o "
+                f"leitor que descobre."
+            )
+
+
 def auditar_referencias_a_adr_morto(ctx: Contexto) -> None:
     """Nenhum arquivo operacional manda seguir ADR `superseded` ou `deprecated`.
 
@@ -693,6 +756,7 @@ def auditar_coerencia_readme_claude(ctx: Contexto) -> None:
 
 CHECKS_GENERICOS = (
     auditar_adrs,
+    auditar_conformidade_com_template,
     auditar_referencias_a_adr_morto,
     auditar_mapa_de_adr_por_caminho,
     auditar_indice_por_dominio,

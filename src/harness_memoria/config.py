@@ -106,6 +106,17 @@ class ConfigAdr:
     #: ADR agregado, substituído em partes por vários outros: a supersessão unilateral
     #: nele vira aviso em vez de falha. Números de 4 dígitos.
     agregados: tuple[str, ...] = ()
+    #: Todo ADR tem os mesmos campos de frontmatter e as mesmas seções `##` que o
+    #: `template.md` da pasta. `False` desliga, para corpus que nunca teve convenção fixa.
+    #:
+    #: O template É a declaração da convenção, então derivar dele custa zero config e não
+    #: apodrece. O cheque nasceu de um erro concreto: um ADR escrito nesta migração saiu com
+    #: 3 dos 7 campos e uma estrutura de seções inventada, porque foi redigido a partir do
+    #: template genérico do harness em vez do template DO PROJETO. Nada acusou — e "genérico
+    #: no lugar do específico" é a regressão que uma extração como esta mais arrisca causar.
+    #:
+    #: `Regra` fica fora: ela tem cheque próprio, com limiar próprio (`primeiro_com_regra`).
+    conformidade_com_template: bool = True
     #: Teto de ADRs no índice injetado. `None` = todos, que é o correto até o corpus
     #: crescer: um corte fixo em 20 escondia 9 dos 29 ADRs do projeto de origem, e entre
     #: os escondidos estava o que substituía a política de PII. Se um dia precisar cortar,

@@ -492,3 +492,76 @@ def test_emenda_nao_exige_status_morto(projeto: Path):
     ctx = auditar(projeto)
     assert ctx.adrs["0001"]["status"] == "accepted"
     assert falhas_com(ctx, "esperado 'superseded'") == []
+
+
+# --------------------------------------------------------------------------- #
+# Conformidade com o template DO PROJETO
+# --------------------------------------------------------------------------- #
+
+TEMPLATE = """\
+---
+status: proposed
+data: AAAA-MM-DD
+decisores: []
+tags: []
+---
+
+# ADR-NNNN — {título}
+
+## Regra
+
+## Contexto e Problema
+
+## Decisão
+
+## Referências
+"""
+
+
+def test_frontmatter_incompleto_reprova(projeto: Path):
+    """O erro que originou o cheque: ADR escrito do template genérico, com 3 dos 7 campos."""
+    (projeto / "docs" / "adr" / "template.md").write_text(TEMPLATE, encoding="utf-8")
+    achado = falhas_com(auditar(projeto), "frontmatter sem")
+    assert achado, "o 0001 da fixture só tem status+data; o template exige decisores e tags"
+    assert "decisores" in achado[0] and "tags" in achado[0]
+
+
+def test_secao_do_template_ausente_reprova(projeto: Path):
+    (projeto / "docs" / "adr" / "template.md").write_text(TEMPLATE, encoding="utf-8")
+    achado = falhas_com(auditar(projeto), "seção")
+    assert achado
+    assert "Contexto e Problema" in achado[0] or "Referências" in achado[0]
+
+
+def test_regra_fica_fora_da_conformidade(projeto: Path):
+    """`Regra` tem cheque próprio, com limiar próprio — não se retrofita nos antigos."""
+    (projeto / "docs" / "adr" / "template.md").write_text(TEMPLATE, encoding="utf-8")
+    achado = falhas_com(auditar(projeto), "seção")
+    assert not any("'Regra'" in a or "['Regra']" in a for a in achado), achado
+
+
+def test_adr_conforme_passa(projeto: Path):
+    (projeto / "docs" / "adr" / "template.md").write_text(TEMPLATE, encoding="utf-8")
+    (projeto / "docs" / "adr" / "0001-primeira.md").write_text(
+        "---\nstatus: accepted\ndata: 2026-01-15\ndecisores: [x]\ntags: [y]\nextra: pode\n---\n\n"
+        "# ADR-0001 — Primeira decisão do projeto\n\n"
+        "## Contexto e Problema\n\n## Decisão\n\n## Referências\n\n"
+        "## Plano de Implementação\n\n- feito\n",
+        encoding="utf-8",
+    )
+    ctx = auditar(projeto)
+    assert falhas_com(ctx, "frontmatter sem") == []
+    assert falhas_com(ctx, "seção") == []
+
+
+def test_sem_template_nao_checa(projeto: Path):
+    """Sem convenção declarada, inventar uma seria pior que não checar."""
+    ctx = auditar(projeto)
+    assert falhas_com(ctx, "frontmatter sem") == []
+
+
+def test_conformidade_desligavel(projeto: Path):
+    (projeto / "docs" / "adr" / "template.md").write_text(TEMPLATE, encoding="utf-8")
+    escrever_config(projeto, {"adr": {"conformidade_com_template": False}})
+    ctx = auditar(projeto)
+    assert falhas_com(ctx, "frontmatter sem") == []
