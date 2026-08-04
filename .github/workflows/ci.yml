@@ -51,9 +51,35 @@ jobs:
           MES=$(date +%Y-%m)
           printf '# Diário · %s\n\n---\n\n## %s-01 — Entrada de exemplo\n\n### Tentativas descartadas\n\n- abordagem X → falhou. **Não repetir.**\n' "$MES" "$MES" \
             > "/tmp/proj/docs/diario/$MES.md"
-          # `template.md` não precisa ser escondido: o glob de ADR é `[0-9][0-9][0-9][0-9]-*.md`.
-          printf -- '---\nstatus: accepted\ndata: 2026-01-01\n---\n\n# ADR-0001 — Exemplo com solução escolhida\n\n## Plano de Implementação\n\n- feito\n' \
-            > /tmp/proj/docs/adr/0001-exemplo.md
+          # O ADR de exemplo é DERIVADO do próprio `template.md`, não escrito à mão: o cheque
+          # de conformidade exige que todo ADR tenha os campos e as seções do template, então
+          # um exemplo escrito à parte divergiria dele na primeira vez que o template mudasse
+          # — e foi o que aconteceu quando o cheque entrou. `template.md` em si não precisa ser
+          # escondido: o glob de ADR é `[0-9][0-9][0-9][0-9]-*.md`.
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          tpl = Path("/tmp/proj/docs/adr/template.md").read_text(encoding="utf-8")
+          corpo = tpl.split("\n---\n", 2)[-1]
+          corpo = re.sub(
+              r"^# ADR-NNNN —.*$",
+              "# ADR-0001 — Exemplo de problema com a solução escolhida",
+              corpo,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          campos = "\n".join(
+              f"{c}: {v}"
+              for c, v in re.findall(r"^([a-z-]+):\s*(.*)$", tpl.split("\n---")[0], re.MULTILINE)
+          )
+          campos = campos.replace("status: proposed", "status: accepted").replace(
+              "data: AAAA-MM-DD", "data: 2026-01-01"
+          )
+          Path("/tmp/proj/docs/adr/0001-exemplo.md").write_text(
+              f"---\n{campos}\n---\n{corpo}", encoding="utf-8"
+          )
+          PY
           cat > /tmp/proj/CLAUDE.md <<EOF
           # Projeto Consumidor
 
