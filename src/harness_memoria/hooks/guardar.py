@@ -137,16 +137,17 @@ def _avaliar_comando(comando: str, g: ConfigGuardas) -> str | None:
         if not padrao:
             continue
         try:
-            if not re.search(padrao, baixo):
-                continue
+            casos = [m.group(0) for m in re.finditer(padrao, baixo)]
         except re.error as e:
             print(
                 f"[{ROTULO}] regex inválida em guardas.comandos: {padrao} ({e})",
                 file=sys.stderr,
             )
             continue
+        if not casos:
+            continue
         permitido = tuple(regra.get("permitido_em") or ())
-        if permitido and _todo_caminho_permitido(baixo, permitido):
+        if permitido and all(_todo_caminho_permitido(c, permitido) for c in casos):
             continue
         motivo = str(regra.get("motivo") or f"comando casa `{padrao}`")
         onde = f" Permitido em: {', '.join(permitido)}." if permitido else ""
@@ -154,20 +155,26 @@ def _avaliar_comando(comando: str, g: ConfigGuardas) -> str | None:
     return None
 
 
-def _todo_caminho_permitido(comando: str, permitido: tuple[str, ...]) -> bool:
-    """`permitido_em` de `guardas.comandos`: TODO caminho citado está sob um prefixo?
+def _todo_caminho_permitido(trecho: str, permitido: tuple[str, ...]) -> bool:
+    """`permitido_em`: TODO caminho **do trecho que casou** está sob um dos prefixos?
 
-    Semântica deliberadamente conservadora — **todo**, não "algum". Um comando misto
-    como `git add tests/fixtures/ok.xlsx dados/roster.xlsx` continua bloqueado, porque
-    liberar pelo primeiro token permitido deixaria a exceção virar porta: bastaria
-    citar um caminho inocente ao lado do proibido.
+    Recebe `m.group(0)`, e não o comando inteiro. A diferença não é detalhe: comando
+    composto é a regra, e na primeira versão desta função o `cd "c:/users/..."` do
+    começo da linha contava como "caminho citado", não estava sob prefixo nenhum, e a
+    exceção nunca valia. O `[^&|;]*` que essas regras usam já confina o casamento a um
+    segmento, então o trecho é exatamente o comando ofensor e nada mais.
 
-    "Caminho citado" é o token que tem separador ou extensão. `git`, `add` e `-u` não
-    têm, então não contam — só flag e subcomando ficariam de fora, e nenhum dos dois é
-    caminho. Extensão sem diretório (`planilha.xlsx`, na raiz) conta e não está sob
-    prefixo nenhum, então bloqueia: é o caso que a regra existe para pegar.
+    Semântica conservadora dentro do trecho — **todo**, não "algum". Um `git add` misto
+    com um caminho permitido ao lado de um proibido continua bloqueado: os dois estão no
+    mesmo segmento, então os dois entram na conta. Liberar pelo primeiro token permitido
+    deixaria a exceção virar porta.
+
+    "Caminho citado" é o token com separador ou extensão. `git`, `add` e `-u` não têm,
+    então não contam — nenhum dos dois é caminho. Extensão sem diretório
+    (`planilha.xlsx`, na raiz) conta e não está sob prefixo nenhum, então bloqueia: é o
+    caso que a regra existe para pegar.
     """
-    tokens = [t.strip("\"'") for t in comando.split()]
+    tokens = [t.strip("\"'") for t in trecho.split()]
     caminhos = [t for t in tokens if not t.startswith("-") and ("/" in t or "\\" in t or "." in t)]
     if not caminhos:
         return False
