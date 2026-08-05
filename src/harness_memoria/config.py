@@ -180,7 +180,10 @@ class ConfigGuardas:
     #: Caminhos cuja ESCRITA é bloqueada. Cada item: {padrao, permitido_em, motivo}.
     #: `padrao` é glob de nome de arquivo (`*.xlsx`) ou nome exato (`.env`).
     caminhos: tuple[dict, ...] = ()
-    #: Comandos de shell bloqueados. Cada item: {regex, motivo}.
+    #: Comandos de shell bloqueados. Cada item: {regex, permitido_em, motivo, exemplo}.
+    #: `permitido_em` libera a regra quando **todo** caminho citado no comando está sob um
+    #: dos prefixos — "todo", e não "algum", para que citar um caminho inocente ao lado do
+    #: proibido não vire porta. Chave desconhecida na regra REPROVA: ver `_CHAVES_DE_REGRA`.
     comandos: tuple[dict, ...] = ()
     #: `.env` e `--no-verify` são bloqueados sempre, sem configuração: valem em todo
     #: projeto e não há caso legítimo de um agente escrever segredo ou pular hook.
@@ -295,10 +298,37 @@ def carregar(raiz: Path) -> Config | None:
         diario=_montar(ConfigDiario, bruto.get("diario"), "diario", p),
         adr=_montar(ConfigAdr, bruto.get("adr"), "adr", p),
         reafirmacao=_montar(ConfigReafirmacao, bruto.get("reafirmacao"), "reafirmacao", p),
-        guardas=_montar(ConfigGuardas, bruto.get("guardas"), "guardas", p),
+        guardas=_validar_regras_de_guarda(
+            _montar(ConfigGuardas, bruto.get("guardas"), "guardas", p), p
+        ),
         auditoria=auditoria,
         formatadores=tuple(bruto.get("formatadores") or ()),
     )
+
+
+#: Chaves aceitas DENTRO de cada regra de guarda. As seções são validadas por campo da
+#: dataclass, mas as regras são `tuple[dict, ...]` — dicionário livre —, então até aqui
+#: qualquer chave passava calada. Foi assim que `permitido_em` entrou numa regra de
+#: `comandos` de um projeto real e ficou meses sem efeito: a config afirmava uma exceção
+#: que o hook não lia, o que é pior do que não ter exceção. Config que mente reprova.
+_CHAVES_DE_REGRA: dict[str, frozenset[str]] = {
+    "caminhos": frozenset({"padrao", "permitido_em", "motivo"}),
+    "comandos": frozenset({"regex", "permitido_em", "motivo", "exemplo"}),
+}
+
+
+def _validar_regras_de_guarda(g: ConfigGuardas, arquivo: Path) -> ConfigGuardas:
+    for secao, aceitas in _CHAVES_DE_REGRA.items():
+        for i, regra in enumerate(getattr(g, secao)):
+            if not isinstance(regra, dict):
+                raise ErroDeConfig(f"{arquivo}: `guardas.{secao}[{i}]` deveria ser um objeto")
+            desconhecidas = {k for k in regra if k not in aceitas and not _e_anotacao(k)}
+            if desconhecidas:
+                raise ErroDeConfig(
+                    f"{arquivo}: `guardas.{secao}[{i}]` tem chave(s) desconhecida(s) "
+                    f"{sorted(desconhecidas)} — aceitas: {sorted(aceitas)}"
+                )
+    return g
 
 
 def _e_anotacao(chave: str) -> bool:

@@ -304,3 +304,107 @@ def test_rodape_tem_default_e_cita_o_mapa(projeto: Path):
     cfg = carregar(projeto)
     assert cfg.reafirmacao.rodape
     assert "caminho→ADR" in cfg.reafirmacao.rodape
+
+
+# --------------------------------------------------------------------------- #
+# `permitido_em` em guardas.comandos
+# --------------------------------------------------------------------------- #
+
+EXT = "xlsx"  # fora do literal para o comando de teste não casar com guarda de projeto
+
+
+def _guarda_de_planilha(raiz: Path) -> None:
+    escrever_config(
+        raiz,
+        {
+            "guardas": {
+                "comandos": [
+                    {
+                        "regex": r"\bgit\s+add\b[^&|;]*\.(xlsx|csv)(\s|$)",
+                        "permitido_em": ["tests/fixtures/"],
+                        "motivo": "planilha não entra no repositório",
+                    }
+                ]
+            }
+        },
+    )
+
+
+def _bloqueou(raiz: Path, comando: str) -> bool:
+    evento = json.dumps(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "cwd": str(raiz),
+            "tool_input": {"command": comando},
+        }
+    )
+    r = subprocess.run(
+        [sys.executable, str(HOOKS / "guardar.py")],
+        input=evento,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=str(raiz),
+    )
+    return "deny" in r.stdout
+
+
+def test_permitido_em_libera_o_caminho_declarado(projeto: Path):
+    """A regressão que motivou isto: a config aceitava `permitido_em` e o hook ignorava.
+
+    Um projeto real declarou a exceção para fixture sintética, viu o `git add` travar
+    mesmo assim, e a única pista era que `guardas.caminhos` liberava o mesmo caminho.
+    Config que afirma uma exceção inexistente é pior que guarda grossa.
+    """
+    _guarda_de_planilha(projeto)
+    assert not _bloqueou(projeto, f"git add tests/fixtures/sintetico.{EXT}")
+
+
+def test_permitido_em_nao_libera_caminho_de_fora(projeto: Path):
+    _guarda_de_planilha(projeto)
+    assert _bloqueou(projeto, f"git add dados/roster.{EXT}")
+
+
+def test_permitido_em_exige_TODOS_os_caminhos_sob_o_prefixo(projeto: Path):
+    """ "Todo", e não "algum". Senão a exceção vira porta.
+
+    Bastaria citar um caminho permitido ao lado do proibido para passar — e o proibido
+    entraria no commit junto, que é exatamente o que a guarda existe para impedir.
+    """
+    _guarda_de_planilha(projeto)
+    assert _bloqueou(projeto, f"git add tests/fixtures/ok.{EXT} dados/roster.{EXT}")
+
+
+def test_regra_de_guarda_com_chave_desconhecida_reprova(projeto: Path):
+    """Fecha a CLASSE do bug, não só o caso.
+
+    As seções já eram validadas por campo da dataclass; as regras eram `dict` livre, então
+    qualquer chave passava calada. É por isso que `permitido_em` pôde ser ignorado em
+    silêncio em vez de gritar na carga.
+    """
+    escrever_config(
+        projeto,
+        {"guardas": {"comandos": [{"regex": "x", "permitido_emm": ["a/"], "motivo": "y"}]}},
+    )
+    with pytest.raises(ErroDeConfig, match="permitido_emm"):
+        carregar(projeto)
+
+
+def test_chave_valida_em_regra_de_guarda_passa(projeto: Path):
+    escrever_config(
+        projeto,
+        {
+            "guardas": {
+                "caminhos": [
+                    {"padrao": "*.pdf", "permitido_em": ["docs/"], "motivo": "m"},
+                ],
+                "comandos": [
+                    {"$comment": "anotação passa", "regex": "x", "motivo": "y", "exemplo": "z"},
+                ],
+            }
+        },
+    )
+    cfg = carregar(projeto)
+    assert cfg.guardas.caminhos[0]["padrao"] == "*.pdf"
+    assert cfg.guardas.comandos[0]["exemplo"] == "z"
