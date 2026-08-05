@@ -137,14 +137,42 @@ def _avaliar_comando(comando: str, g: ConfigGuardas) -> str | None:
         if not padrao:
             continue
         try:
-            if re.search(padrao, baixo):
-                return f"Bloqueado: {regra.get('motivo') or f'comando casa `{padrao}`'}"
+            if not re.search(padrao, baixo):
+                continue
         except re.error as e:
             print(
                 f"[{ROTULO}] regex inválida em guardas.comandos: {padrao} ({e})",
                 file=sys.stderr,
             )
+            continue
+        permitido = tuple(regra.get("permitido_em") or ())
+        if permitido and _todo_caminho_permitido(baixo, permitido):
+            continue
+        motivo = str(regra.get("motivo") or f"comando casa `{padrao}`")
+        onde = f" Permitido em: {', '.join(permitido)}." if permitido else ""
+        return f"Bloqueado: {motivo}{onde}"
     return None
+
+
+def _todo_caminho_permitido(comando: str, permitido: tuple[str, ...]) -> bool:
+    """`permitido_em` de `guardas.comandos`: TODO caminho citado está sob um prefixo?
+
+    Semântica deliberadamente conservadora — **todo**, não "algum". Um comando misto
+    como `git add tests/fixtures/ok.xlsx dados/roster.xlsx` continua bloqueado, porque
+    liberar pelo primeiro token permitido deixaria a exceção virar porta: bastaria
+    citar um caminho inocente ao lado do proibido.
+
+    "Caminho citado" é o token que tem separador ou extensão. `git`, `add` e `-u` não
+    têm, então não contam — só flag e subcomando ficariam de fora, e nenhum dos dois é
+    caminho. Extensão sem diretório (`planilha.xlsx`, na raiz) conta e não está sob
+    prefixo nenhum, então bloqueia: é o caso que a regra existe para pegar.
+    """
+    tokens = [t.strip("\"'") for t in comando.split()]
+    caminhos = [t for t in tokens if not t.startswith("-") and ("/" in t or "\\" in t or "." in t)]
+    if not caminhos:
+        return False
+    prefixos = tuple(p.lower().replace("\\", "/") for p in permitido)
+    return all(any(p in t.replace("\\", "/") for p in prefixos) for t in caminhos)
 
 
 def _autoteste(projeto: str) -> int:
