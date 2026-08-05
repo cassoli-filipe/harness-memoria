@@ -408,3 +408,23 @@ def test_chave_valida_em_regra_de_guarda_passa(projeto: Path):
     cfg = carregar(projeto)
     assert cfg.guardas.caminhos[0]["padrao"] == "*.pdf"
     assert cfg.guardas.comandos[0]["exemplo"] == "z"
+
+
+def test_permitido_em_ignora_caminho_de_outro_segmento_do_comando(projeto: Path):
+    """O caso que a primeira versão errou, e que os testes nus não pegavam.
+
+    Comando composto é a regra, não a exceção: quase toda linha começa com `cd`. Se a
+    conta olhar o comando inteiro, o caminho do `cd` conta como "citado", não está sob
+    prefixo nenhum, e a exceção nunca vale. O `[^&|;]*` das regras já confina o
+    casamento a um segmento — a conta tem de olhar só ele.
+    """
+    _guarda_de_planilha(projeto)
+    comando = f'cd "/tmp/outro/lugar" && git add tests/fixtures/a.{EXT} && echo feito'
+    assert not _bloqueou(projeto, comando)
+
+
+def test_permitido_em_bloqueia_se_qualquer_segmento_ofensor_tem_caminho_de_fora(projeto: Path):
+    """Dois `git add` na mesma linha: um permitido, um não. Basta um para bloquear."""
+    _guarda_de_planilha(projeto)
+    comando = f"git add tests/fixtures/a.{EXT} && git add dados/roster.{EXT}"
+    assert _bloqueou(projeto, comando)
