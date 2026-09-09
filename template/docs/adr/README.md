@@ -6,13 +6,26 @@ ou adicionar dependência.** Se sua tarefa contradiz um ADR vivo, PARE e pergunt
 Formato: MADR 4.0.0 adaptado ao pt-BR. Modelo em [`template.md`](template.md). Crie com a
 skill `/novo-adr`.
 
-Este índice é auditado contra os arquivos: todo ADR precisa estar listado aqui, e a contagem
-por status precisa bater. O que o hook `SessionStart` injeta no contexto vem dos **arquivos**,
-não desta tabela — então uma tabela desatualizada não engana o agente, mas reprova o build.
+Este índice é auditado só quanto à **PRESENÇA**: todo ADR precisa estar listado aqui pelo
+nome do arquivo. O `Status` desta tabela **não** é comparado com o frontmatter — se
+divergirem, é o frontmatter que vale, porque o hook `SessionStart` injeta o índice a partir
+dos **arquivos**, nunca desta tabela. A contagem POR STATUS ("N ADRs, M `accepted`") é
+auditada no `README.md` da **raiz** do projeto, não neste arquivo — escrever essa frase aqui
+não é conferida por nada.
 
-| ADR                        | Título                | Status   |
-| -------------------------- | --------------------- | -------- |
-| [0001](0001-exemplo.md)    | {problema + solução}  | proposed |
+| ADR | Título                | Status   |
+| --- | --------------------- | -------- |
+| [0001](0001-exemplo.md) | {problema + solução} | proposed |
+<!-- ↑ linha de exemplo, de propósito NÃO comentada. Já foi comentário HTML, e o cheque de
+     presença do auditor lia o arquivo como texto puro — o comentário SATISFAZIA
+     `f.name in texto_indice` sem nenhuma linha visível na tabela (medido: a auditoria
+     aprovava com "índice sincronizado" e a tabela ficava com zero linhas). O auditor agora
+     ignora comentário HTML antes desse cheque, então a linha comentada voltaria a reprovar
+     — e o CI cria `0001-exemplo.md` a partir deste `template.md` para testar a auditoria de
+     ponta a ponta, então o link é válido no consumidor sintético. Um projeto recém-clonado,
+     sem nenhum ADR ainda, fica com este link sem arquivo correspondente: ao criar o
+     ADR-0001 de verdade com `/novo-adr`, SUBSTITUA esta linha pela real — não adicione uma
+     segunda. -->
 
 ## Status
 
@@ -24,18 +37,23 @@ não desta tabela — então uma tabela desatualizada não engana o agente, mas 
 | `superseded`  | **não siga** — outro ADR o substituiu, veja `substituido-por:`     |
 | `deprecated`  | **não siga** — não vale mais, e nada o substituiu                  |
 
-`superseded` e `deprecated` exigem `substituido-por:` no frontmatter — ADR morto sem
-substituto declarado deixa o índice injetado sem ter o que apontar, e a auditoria reprova.
-Supersessão é **bidirecional**: o novo declara `substitui:`, o antigo declara
-`substituido-por:`.
+`superseded` **exige** `substituido-por:` no frontmatter — ADR morto sem substituto
+declarado deixa o índice injetado sem ter o que apontar, e a auditoria reprova.
+`deprecated` é o status de quem **não tem** substituto: não leva `substituido-por:`, e a
+auditoria exige o motivo no CORPO do ADR em vez disso. Supersessão é **bidirecional**: o
+novo declara `substitui:`, o antigo declara `substituido-por:`.
 
 ## Por domínio
 
 <!-- Caminho natural de quem procura "os ADRs de tal assunto". ADR morto aqui precisa de
-     marca explícita — `0007 (superada → 0023)` — senão o leitor recebe o morto e o vivo com
-     o mesmo peso. A auditoria verifica. -->
+     marca explícita, derivada do frontmatter — `0007 (superada → 0023)` quando `superseded`
+     com substituto, `0007 (deprecated)` quando não há substituto — senão o leitor recebe o
+     morto e o vivo com o mesmo peso. A auditoria verifica. -->
 
-- **{domínio}:** 0001
+<!-- - **{domínio}:** 0001 -->
+<!-- ↑ linha de exemplo, comentada: nenhum domínio real existe ainda no template, e — ao
+     contrário da linha do índice acima — nada no CI monta um consumidor que dependa desta
+     lista estar preenchida. Descomente e ajuste ao classificar o primeiro ADR de verdade. -->
 
 ## Regras
 

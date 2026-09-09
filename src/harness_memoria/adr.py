@@ -129,6 +129,12 @@ def indice_para_injecao(pasta: Path, limite: int | None = None) -> list[str]:
     ADR `superseded` sai com o substituto em linha, para o bloco ser autossuficiente.
     Quem passar `limite` é responsável por anunciar o corte — ver `anunciar_corte`.
     Truncar em silêncio é pior que truncar avisando: o aviso cria gatilho de leitura.
+
+    **Uma linha por ADR, sempre.** Quem INJETA usa `indice_compactado`, que agrega os
+    aposentados; esta função é a lista canônica de "todo ADR que tem de estar nomeado no
+    bloco", e é assim que `conferir_fidelidade` a usa. Manter as duas é deliberado: se a
+    conferência olhasse a mesma lista compactada que a montagem produziu, ela concordaria
+    consigo mesma por construção.
     """
     dados = dados_dos_adrs(pasta)
     linhas: list[str] = []
@@ -140,6 +146,96 @@ def indice_para_injecao(pasta: Path, limite: int | None = None) -> list[str]:
             status = f"{status} → siga {substitutos}"
         linhas.append(f"ADR-{num} [{status}] {d['titulo']}".rstrip())
     return linhas if limite is None else linhas[:limite]
+
+
+#: Prefixo das linhas agregadas de ADR aposentado. É público porque quem monta o bloco
+#: precisa saber se ela está lá para não repetir, em prosa, o que ela já diz — ver o rodapé
+#: em `hooks/session_start.py`.
+PREFIXO_APOSENTADOS = "Aposentados"
+
+_AGREGADO_COM_SUBSTITUTO = f"{PREFIXO_APOSENTADOS}, NÃO siga — substituto ao lado: "
+_AGREGADO_SEM_SUBSTITUTO = f"{PREFIXO_APOSENTADOS} (sem substituto declarado), NÃO siga: "
+
+#: Custo que o bloco do `SessionStart` acrescenta a cada linha: o `- ` na frente e o `\n`
+#: que a junta à seguinte. O orçamento em chars é conferido AQUI, onde se sabe qual linha
+#: entra, e não no texto já montado: fatiar o texto montado cortaria o índice DEPOIS do
+#: cabeçalho que diz "índice completo, 67 ADRs", produzindo o falso completo que
+#: `conferir_fidelidade` existe justamente para pegar.
+_CUSTO_DE_LINHA = len("- ") + len("\n")
+
+
+def indice_compactado(
+    pasta: Path, limite: int | None = None, teto_chars: int | None = None
+) -> tuple[list[str], int, int]:
+    """`(linhas, total_de_adrs, adrs_nomeados)` — o índice com os APOSENTADOS agregados.
+
+    Os mortos saem em UMA linha (duas, quando há morto sem substituto), porque a linha
+    inteira deles é gordura constante: medido em corpus de 30 ADRs com 7 mortos, as 7 linhas
+    completas somam 690 ch (27% do índice) contra 178 ch da linha agregada — 512 ch (~146
+    tokens) economizados por disparo, independentemente do tamanho do corpus, **sem esconder
+    um único número de ADR**. O token `ADR-0005` sobrevive dentro de `ADR-0005→ADR-0019`,
+    então o cheque 1 de `conferir_fidelidade` (`linha.split(maxsplit=1)[0]`) continua vendo
+    todos.
+
+    Duas fatias e não uma: morto SEM substituto vai em linha própria, com o mesmo texto
+    "(sem substituto declarado)" que o auditor já usa. A agregação óbvia
+    (`f"ADR-{n}→ADR-{subs[0]}"`) estouraria com `IndexError` nesse caso e, se protegida por
+    um `if` distraído, sumiria com o ADR de um bloco que se declara completo — que é o
+    defeito que esta função existe para não introduzir. `deprecated` é exatamente o status
+    de quem não tem sucessor, e ele passou a ser legal na auditoria.
+
+    `limite` (contagem, de `adr.limite_indice`) e `teto_chars` (orçamento calculado em
+    `montar`) cortam só os VIVOS: os aposentados são orçados primeiro porque custam ~18 ch
+    por ADR contra 110-120 ch da linha viva, e "não siga isto" é o que sai mais caro
+    esquecer. `adrs_nomeados` conta os ADRs cujo número chegou ao texto — é ele, não
+    `len(linhas)`, que diz se o índice é completo, e é ele que alimenta `anunciar_corte`.
+    """
+    dados = dados_dos_adrs(pasta)
+    vivos: list[str] = []
+    com_substituto: list[str] = []
+    sem_substituto: list[str] = []
+    for num in sorted(dados):
+        d = dados[num]
+        status = d["status"] or "(sem status)"
+        if status in STATUS_MORTOS:
+            if d["substituido_por"]:
+                # `/` entre substitutos porque a vírgula já separa os PARES na linha.
+                alvo = "/".join(f"ADR-{s}" for s in d["substituido_por"])
+                com_substituto.append(f"ADR-{num}→{alvo}")
+            else:
+                sem_substituto.append(f"ADR-{num}")
+            continue
+        vivos.append(f"ADR-{num} [{status}] {d['titulo']}".rstrip())
+
+    if limite is not None:
+        vivos = vivos[:limite]
+
+    agregadas = [
+        (_AGREGADO_COM_SUBSTITUTO + ", ".join(com_substituto), len(com_substituto)),
+        (_AGREGADO_SEM_SUBSTITUTO + ", ".join(sem_substituto), len(sem_substituto)),
+    ]
+    linhas_agregadas: list[str] = []
+    nomeados = 0
+    gasto = 0
+    for linha, quantos in agregadas:
+        if not quantos:
+            continue
+        if teto_chars is not None and gasto + len(linha) + _CUSTO_DE_LINHA > teto_chars:
+            # Não cabe: os ADRs dela contam como NÃO nomeados e o bloco se declara PARCIAL.
+            continue
+        linhas_agregadas.append(linha)
+        nomeados += quantos
+        gasto += len(linha) + _CUSTO_DE_LINHA
+
+    dentro: list[str] = []
+    for linha in vivos:
+        if teto_chars is not None and gasto + len(linha) + _CUSTO_DE_LINHA > teto_chars:
+            break  # prefixo, não peneira: cortar do meio produziria uma lista arbitrária
+        dentro.append(linha)
+        nomeados += 1
+        gasto += len(linha) + _CUSTO_DE_LINHA
+
+    return dentro + linhas_agregadas, len(dados), nomeados
 
 
 def anunciar_corte(total: int, injetadas: int, onde: str) -> str:

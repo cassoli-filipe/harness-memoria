@@ -1,0 +1,10 @@
+{
+  "$comment": "Config deste próprio repositório (ADR-0001, decisão 4 do plano de otimização de 2026-09). Todo campo tem default em src/harness_memoria/config.py — `projeto` só está aqui porque `raiz.name` de `Path('.')` é string vazia (é assim que o CI e o autoteste chamam, com `--projeto .`), e `reafirmacao.sub_bloco` difere para exercitar o mesmo mecanismo de sub-bloco que os consumidores reais usam.",
+  "projeto": "harness-memoria",
+  "reafirmacao": {
+    "sub_bloco": "**NUNCA**"
+  },
+  "formatadores": [
+    { "extensoes": [".py"], "comando": ["ruff", "format", "{arquivo}"] }
+  ]
+}

@@ -323,6 +323,13 @@ def _guarda_de_planilha(raiz: Path) -> None:
                         "regex": r"\bgit\s+add\b[^&|;]*\.(xlsx|csv)(\s|$)",
                         "permitido_em": ["tests/fixtures/"],
                         "motivo": "planilha não entra no repositório",
+                        # `exemplo` é exigido em `guardas.comandos` — sem ele o autoteste
+                        # não exercita a regra. Quem cobra é `auditar_guardas`, não
+                        # `carregar()`: chave obrigatória ausente carrega e a auditoria
+                        # reprova, porque lançar na leitura deixava os cinco hooks inertes
+                        # no consumidor que só atualizou o plugin. A linha fica de qualquer
+                        # forma: é o que a config deste projeto teria escrito.
+                        "exemplo": "git add dados/roster.xlsx",
                     }
                 ]
             }

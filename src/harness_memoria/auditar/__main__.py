@@ -13,6 +13,7 @@ o CI não pode depender dele. Aqui o mesmo código é consumido como pacote —
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from ..config import NOME_ARQUIVO, ErroDeConfig, carregar, raiz_projeto
 from ..diario import forcar_utf8
@@ -25,7 +26,16 @@ def main(argv: list[str] | None = None) -> int:
     silencioso = "--silencioso" in argv
 
     alvo = _arg(argv, "--projeto")
-    raiz = raiz_projeto(alvo) if alvo else raiz_projeto()
+    # `--projeto` é escolha EXPLÍCITA de quem chamou e ganha da variável de ambiente.
+    # Medido: `raiz_projeto(alvo)` põe `CLAUDE_PROJECT_DIR` na frente dos candidatos, e
+    # dentro de uma sessão do Claude Code ela está SEMPRE setada — então
+    # `--projeto <outro>` auditava o projeto CORRENTE. O caso caro é o silencioso: com o
+    # corrente verde, a saída é "Auditoria aprovada" sobre o alvo errado, que é exatamente
+    # o resultado que o comentário do `cfg is None` abaixo chama de "o pior resultado
+    # possível para um cheque". Sem argumento, a descoberta continua env-primeiro, e no
+    # caminho de hook (`_comum.contexto`) também: lá o candidato é o cwd do evento, não uma
+    # escolha de ninguém.
+    raiz = Path(alvo) if alvo else raiz_projeto()
 
     try:
         cfg = carregar(raiz)

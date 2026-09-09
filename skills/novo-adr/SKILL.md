@@ -20,9 +20,17 @@ supor o caminho).
 3. Se a decisão **contradiz** um ADR vivo, este é um caso de supersessão: o novo ganha
    `substitui: [ADR-NNNN]` e o antigo ganha `substituido-por: [ADR-MMMM]` +
    `status: superseded`. **Os dois lados são obrigatórios** — a auditoria falha se só um
-   existir, e um ADR morto sem substituto declarado também reprova, porque o índice
-   injetado no início da sessão fica sem ter o que apontar.
-4. Procure no código o padrão atual (`Grep`) para descrever o estado real, não o presumido.
+   existir. Isso vale só para `superseded`: um ADR `deprecated` (morto sem substituto) NÃO
+   precisa de `substituido-por:` — é o status certo quando a decisão parou de valer e nada a
+   substituiu; o que a auditoria exige nesse caso é o motivo no CORPO do ADR, não um campo.
+4. Se a decisão muda **uma** das várias decisões de um ADR sem revogar as outras, não é
+   supersessão — é **emenda**. O novo ganha `emenda: [ADR-NNNN]`, o antigo ganha
+   `emendado-por: [ADR-MMMM]`, e os dois lados também são obrigatórios (`emenda unilateral`
+   reprova a auditoria). Marcar `superseded` aqui mentiria sobre as decisões que continuam
+   valendo; não marcar nada deixaria quem lê o ADR antigo achando que a parte revogada ainda
+   vale — o dano de ponteiro velho na forma mais enganosa, porque a parte errada fica cercada
+   de partes certas.
+5. Procure no código o padrão atual (`Grep`) para descrever o estado real, não o presumido.
 
 ## Fase 1 — Extrair a decisão do usuário, uma pergunta por vez
 
@@ -54,14 +62,20 @@ Faça **uma pergunta por vez**. Não despeje um formulário.
    outro agente implementar sem perguntas de acompanhamento: arquivos a tocar, padrões a
    seguir, testes obrigatórios, o que **não** mexer.
 6. Atualize o índice: linha na tabela **e** na lista "Por domínio", se ela existir. ADR
-   morto na lista por domínio precisa de marca — `0007 (superada → 0023)`.
-7. Se houver supersessão, edite o ADR antigo: `status: superseded` + `substituido-por:`.
+   morto na lista por domínio precisa de marca, derivada do frontmatter — `0007 (superada →
+   0023)` quando `superseded` com substituto, `0007 (deprecated)` quando não há substituto.
+7. Se houver supersessão, edite o ADR antigo: `status: superseded` + `substituido-por:`. Se
+   houver emenda, edite o ADR antigo só com `emendado-por:` — o status dele não muda, porque
+   as decisões que a emenda não tocou continuam valendo.
 
 ## Fase 3 — Verificar
 
 ```bash
-python -m harness_memoria.auditar
+uv run python -m harness_memoria.auditar
 ```
+
+(`uv run`, não `python` nu: o pacote foi instalado no `.venv` do projeto por `uv add --dev`,
+que o `python` do PATH não enxerga. Onde o projeto não usa `uv`, ative o venv antes.)
 
 Precisa sair com 0. Se falhar, corrija antes de terminar.
 

@@ -3,7 +3,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear|compact",
+        "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
             "type": "command",
@@ -11,6 +11,33 @@
             "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/session_start.py"],
             "timeout": 20,
             "statusMessage": "Reinjetando memória do projeto (diário + ADRs)"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/session_start.py"],
+            "timeout": 15,
+            "statusMessage": "Injetando invioláveis e becos no subagente"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "manual|auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/pre_compact.py"],
+            "timeout": 10
           }
         ]
       }
@@ -62,7 +89,8 @@
             "type": "command",
             "command": "python",
             "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/reafirmar.py"],
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }

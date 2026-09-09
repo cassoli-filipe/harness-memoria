@@ -31,15 +31,43 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pytest
+      # Decisão 4 do plano de otimização (2026-09, ADR-0001): o repositório se
+      # auto-hospeda — `.claude/harness.json`, `CLAUDE.md`, `docs/adr/` e `docs/diario/`
+      # existem na raiz. Sem este passo, uma regressão que quebrasse a própria adoção só
+      # apareceria quando um consumidor a repetisse. `PYTHONPATH=src` não é estritamente
+      # necessário aqui (`uv sync` já instala `harness_memoria` editável), mas é mantido
+      # pelo mesmo motivo do job `autotestes`: não depender de o pacote estar instalado.
+      #
+      # AVISO — este passo reprova por ROTAÇÃO, não por regressão, a partir do dia
+      # `diario.dia_limite_rotacao` (default 3) de cada mês: `auditar_diario` acusa
+      # "docs/diario/AAAA-MM.md não existe" e `auditar_claude_md` acusa o ponteiro do mês
+      # defasado, os dois ao mesmo tempo. Se o CI vermelhar aqui num PR de início de mês,
+      # a manutenção é a rotação, não um bisect: `git mv docs/diario/AAAA-MM-anterior.md
+      # docs/diario/arquivo/`, criar `docs/diario/AAAA-MM-atual.md` a partir de
+      # `template/docs/diario/AAAA-MM.md`, e mover o ponteiro do `CLAUDE.md` para o arquivo
+      # novo.
+      - name: Auditoria do próprio repositório (ADR-0001)
+        run: uv run python -m harness_memoria.auditar --projeto .
+        env:
+          PYTHONPATH: src
 
   autotestes:
-    name: Autoteste dos hooks contra um projeto de verdade
+    name: Autoteste dos seis hooks contra um projeto de verdade
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 é o que os runners rodam por padrão; 3.10 é o piso declarado em
+        # `requires-python` no `pyproject.toml` — sem testá-lo, o piso era chute (achado 8
+        # do crítico de completude). Testa o piso EXATO, não uma versão abaixo dele: uma
+        # versão fora do que o projeto promete suportar não removeria o chute, criaria um
+        # novo — se a versão mínima mudar de novo, este valor tem de acompanhar.
+        python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       # O `python` puro, sem venv nem dependência: é assim que o Claude Code roda os hooks.
       # Se algum import de terceiro entrar no pacote por engano, este job é quem pega.
       - name: Montar um projeto consumidor a partir do template
@@ -101,14 +129,26 @@ jobs:
           EOF
       - name: Auditoria do projeto consumidor
         run: PYTHONPATH=src python -m harness_memoria.auditar --projeto /tmp/proj
+      # `--projeto` explícito tem de ganhar de `CLAUDE_PROJECT_DIR` (lote 9.4): sem a
+      # correção, `raiz_projeto(alvo)` põe a variável de ambiente na frente dos candidatos
+      # e este comando auditaria o projeto ERRADO (`/tmp/alheio`) enquanto reporta 0 falhas
+      # sobre o alvo pedido (`/tmp/proj`) — o pior resultado possível para um cheque.
+      - name: Auditoria não perde `--projeto` para `CLAUDE_PROJECT_DIR` de outro projeto
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/alheio && printf '# Outro projeto\n' > /tmp/alheio/CLAUDE.md
+          CLAUDE_PROJECT_DIR=/tmp/alheio PYTHONPATH=src python -m harness_memoria.auditar --projeto /tmp/proj
       # O autoteste do session_start confere FIDELIDADE, não só que o hook roda: reprova se
       # o índice de ADR chegar cortado sem se declarar cortado, se um ADR morto aparecer sem
       # apontar substituto, ou se o recorte da entrada do diário descartar as seções de
-      # retomada.
-      - name: Autoteste dos cinco hooks
+      # retomada. `formatar` é o sexto e é DECLARATIVO aqui, não corretivo: este job só tem
+      # `actions/setup-python` (sem `uv sync`), então `ruff` nunca está no PATH e a linha do
+      # formatar sempre imprime "ausente no PATH" — o cheque que MORDE (ruff de verdade) é
+      # `uv run ruff format --check .` no job `testes`, que tem o venv.
+      - name: Autoteste dos cinco hooks + estado do formatar
         run: |
           set -euo pipefail
-          for h in session_start session_end reafirmar guardar formatar; do
+          for h in session_start session_end reafirmar guardar formatar pre_compact; do
             echo "--- $h"
             python "src/harness_memoria/hooks/$h.py" --autoteste --projeto /tmp/proj
           done
@@ -119,13 +159,26 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/alheio && printf '# Outro projeto\n' > /tmp/alheio/CLAUDE.md
-          for h in session_start session_end reafirmar guardar formatar; do
+          for h in session_start session_end reafirmar guardar formatar pre_compact; do
             saida=$(echo '{"cwd":"/tmp/alheio","tool_name":"Write","session_id":"s","reason":"clear","tool_input":{"file_path":"/tmp/alheio/.env"}}' \
               | python "src/harness_memoria/hooks/$h.py")
             if [ -n "$saida" ]; then echo "FALHA: $h produziu saída em projeto sem config: $saida"; exit 1; fi
           done
           if [ -d /tmp/alheio/docs ]; then echo "FALHA: um hook criou docs/ num projeto sem config"; exit 1; fi
-          echo "ok — os cinco hooks são inertes sem harness.json"
+          echo "ok — os seis hooks são inertes sem harness.json"
+      # O outro lado do gate: rc=0 com stdout vazio é exatamente o que um hook MORTO
+      # também devolve, então o cheque acima não distingue "gate funcionando" de "guardar
+      # parou de rodar". `CLAUDE_PROJECT_DIR=/tmp/proj` não é decoração — sem ela o
+      # pré-gate cai no cwd do processo (a raiz do checkout), que desde o ADR-0001 TEM
+      # `CLAUDE.md`; é também o que a plataforma faz de verdade (confirmado no binário
+      # instalado).
+      - name: Gate — o outro lado, o hook TEM de agir em projeto que adotou
+        run: |
+          set -euo pipefail
+          saida=$(echo '{"cwd":"/tmp/proj","tool_name":"Write","session_id":"s","tool_input":{"file_path":"/tmp/proj/.env"}}' \
+            | CLAUDE_PROJECT_DIR=/tmp/proj python src/harness_memoria/hooks/guardar.py)
+          echo "$saida" | grep -q '"permissionDecision": "deny"' \
+            || { echo "FALHA: guardar ficou inerte em projeto COM config: $saida"; exit 1; }
 
   manifestos:
     name: Manifestos do plugin
@@ -167,8 +220,11 @@ jobs:
                           rel = arg.replace("${CLAUDE_PLUGIN_ROOT}/", "")
                           if not Path(rel).exists():
                               falhas.append(f"hooks.json ({evento}) aponta para `{rel}`, que não existe")
-          if alvos != 5:
-              falhas.append(f"esperava 5 hooks referenciados, achei {alvos}")
+          # 7, não 5: SubagentStart (reusa session_start.py, bloco reduzido) e PreCompact
+          # entraram na onda 4. `alvos` conta REGISTRO em hooks.json, não script distinto
+          # — são 6 arquivos (session_start é referenciado duas vezes).
+          if alvos != 7:
+              falhas.append(f"esperava 7 hooks referenciados, achei {alvos}")
 
           for d in Path("skills").iterdir():
               if not (d / "SKILL.md").exists():

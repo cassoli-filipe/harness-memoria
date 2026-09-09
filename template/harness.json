@@ -1,35 +1,10 @@
 {
-  "$comment": "Config MÍNIMA de exemplo. Todo campo tem default: escreva só o que difere, porque config que repete o default mente sobre ter sido pensada. A presença deste arquivo é o gate — sem ele, todo hook do harness é inerte neste projeto. Referência completa dos campos: `src/harness_memoria/config.py` no repo do harness.",
+  "$comment": "Config MÍNIMA de exemplo — só os campos que costumam DIFERIR do default no primeiro projeto (o exemplo real é o objeto abaixo: `projeto`, `reafirmacao.sub_bloco`, `formatadores`). Todo campo tem default: escreva só o que difere, porque config que repete o default mente sobre ter sido pensada — os seis campos que este arquivo tinha antes e removeu (`diario.skill_de_encerramento`, `diario.injetar_ultima_entrada`, `adr.secao_plano`, `adr.primeiro_com_regra`, `guardas.caminhos`, `guardas.comandos`) eram, um a um, idênticos ao default. A presença deste arquivo é o gate — sem ele, todo hook do harness é inerte neste projeto. Referência completa dos campos, com o incidente que justificou cada um: `src/harness_memoria/config.py` no repo do harness.",
   "projeto": "Nome do projeto",
 
-  "diario": {
-    "$comment": "`skill_de_encerramento` faz o `/encerrar-sessao` do plugin CEDER A VEZ para um comando do projeto que faça mais (ex.: `/handoff`). Sem isso, duas skills competem pelo mesmo arquivo de diário e chamar a errada produz uma entrada pior no lugar certo, sem nada acusar. O hook `SessionEnd` continua valendo — ele é o piso, não um concorrente. `injetar_ultima_entrada: false` quando outro mecanismo do projeto já reinjeta a narrativa da sessão anterior.",
-    "skill_de_encerramento": null,
-    "injetar_ultima_entrada": true
-  },
-
-  "reafirmacao": {
-    "$comment": "`secao` casa por prefixo do título no CLAUDE.md. `sub_bloco` isola o bloco de proibição absoluta quando a seção tem mais de um. Só proibição cuja violação é SILENCIOSA merece reafirmação.",
-    "sub_bloco": "**NUNCA**"
-  },
-
-  "adr": {
-    "$comment": "`secao_plano: null` desliga a exigência de `## Plano de Implementação` — necessário quando os ADRs existentes nasceram sem ela. `primeiro_com_regra` é o número a partir do qual `## Regra` passa a valer; os anteriores NÃO são retrofitados.",
-    "secao_plano": "## Plano de Implementação",
-    "primeiro_com_regra": null
-  },
-
-  "guardas": {
-    "$comment": "`.env` e `--no-verify` já são bloqueados pelas universais. Aqui vai o que é proibido NESTE projeto. `exemplo` em `comandos` é usado pelo autoteste — guarda configurada e nunca exercitada é guarda que ninguém sabe se funciona.",
-    "caminhos": [],
-    "comandos": []
-  },
+  "reafirmacao": { "sub_bloco": "**NUNCA**" },
 
   "formatadores": [
-    {
-      "$comment": "Regra cujo executável não está no PATH é ignorada em silêncio, então várias podem coexistir como fallback. `exige` é um caminho relativo à raiz que precisa existir — evita rodar prettier sem node_modules em toda escrita.",
-      "extensoes": [".py"],
-      "comando": ["ruff", "format", "{arquivo}"]
-    }
+    { "extensoes": [".py"], "comando": ["ruff", "format", "{arquivo}"] }
   ]
 }
