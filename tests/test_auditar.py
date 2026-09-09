@@ -367,7 +367,7 @@ def test_harness_json_no_gitignore_reprova(projeto: Path):
 
     O `.gitignore` do ValidaNI é `.claude/*` com exceções nomeadas uma a uma, e
     `harness.json` não estava entre elas. A auditoria passava — ela lê o arquivo em DISCO, e
-    em disco ele estava lá. No runner do CI o checkout viria sem ele, os cinco hooks ficariam
+    em disco ele estava lá. No runner do CI o checkout viria sem ele, os seis hooks ficariam
     silenciosamente inertes, e a auditoria acusaria que o projeto nunca adotou o harness.
     """
     import subprocess

@@ -12,12 +12,25 @@ import json
 import os
 import re
 import sys
-import tempfile
 import time
 from pathlib import Path
 
 from ..config import Config, ErroDeConfig, carregar, raiz_projeto
-from ..diario import forcar_utf8
+from ._leve import forcar_utf8
+
+# Dois imports que este módulo NÃO faz mais, e o motivo é o mesmo: os três hooks quentes
+# (`guardar`, `reafirmar`, `formatar`) importam `_comum` a cada tool call e o caminho de
+# decisão deles não toca nenhum dos dois. Medido com `-X importtime`, cumulativo:
+#
+# * `tempfile` — 18,2 ms, arrastando `shutil` (10,0). Único uso é `pasta_estado`, que
+#   `guardar` e `formatar` nunca chamam; virou import local ali.
+# * `..diario` — 9,1 ms, arrastando `subprocess` (6,8) e `datetime` (1,0), para trazer uma
+#   função de 4 linhas que reconfigura o stdout. Agora vem de `._leve`, que não importa
+#   nada. Ver o comentário em `_leve.forcar_utf8` sobre a cópia.
+#
+# `contextlib` continua no topo de propósito: são 14,8 ms cumulativos, mas quase todos são
+# `collections`/`functools`/`operator`, que `json` e `dataclasses` importam de todo jeito
+# no mesmo processo. Medido tirá-lo: 126,4 → 127,8 ms, isto é, nada.
 
 #: Marca o `claude -p` que narra o diário. Ele também é uma sessão do Claude Code e
 #: dispararia SessionEnd e PostToolUse — o que geraria recursão no primeiro caso e
@@ -101,6 +114,8 @@ def pasta_estado(raiz: Path) -> Path:
     atualização do plugin. Estado que se perde num reboot é aceitável — nenhuma sessão
     sobrevive a um.
     """
+    import tempfile  # 18,2 ms de import, e só `reafirmar` chega até aqui
+
     chave = re.sub(r"[^A-Za-z0-9_-]", "_", str(raiz).lower())[-60:]
     p = Path(tempfile.gettempdir()) / "harness-memoria" / chave
     p.mkdir(parents=True, exist_ok=True)
@@ -145,6 +160,21 @@ def apagar_contador(raiz: Path, sessao: str) -> None:
 
 
 def _limpar_estado_velho(pasta: Path) -> None:
+    """Expira o CONTADOR de escritas por sessão — e só ele.
+
+    O glob é `escritas_*.txt` e **não pode virar `*.txt`**, por mais que "limpar o
+    diretório de estado" pareça o gesto natural. `session_end` guarda ali
+    `diffstat_visto.txt`, a impressão do worktree com que a última sessão do projeto
+    terminou, e ela existe justamente para NÃO expirar: sem marca, a idade do diff é
+    desconhecida e o piso volta a cobrar de uma sessão de leitura a sujeira deixada por
+    outra — a entrada vazia que passa a ser a `ultima_entrada` reinjetada. Um contador de
+    sessão morta em 7 dias é lixo; a marca de projeto não é.
+
+    E a regressão não seria pega por teste: os casos criam a marca dentro da mesma
+    execução, então ela nunca está velha o bastante para o glob largo a apagar. Se algum
+    dia houver mais de um prefixo com validade própria, o certo é um mapa
+    prefixo -> validade, não um glob que pega tudo.
+    """
     limite = time.time() - VALIDADE_ESTADO_DIAS * 86_400
     for p in pasta.glob("escritas_*.txt"):
         try:
@@ -157,4 +187,10 @@ def _limpar_estado_velho(pasta: Path) -> None:
 # Nota sobre o bootstrap de `sys.path`: ele NÃO pode morar aqui. Este módulo importa
 # `..config`, então precisaria do path já resolvido para ser importado — cada script de
 # hook faz a inserção inline, nas suas primeiras linhas, antes de qualquer import do
-# pacote. É por isso que aquelas quatro linhas se repetem nos cinco arquivos.
+# pacote. É por isso que o bootstrap se repete em todo script de hook — o número de
+# linhas e de arquivos já mudou duas vezes, então não fica escrito aqui.
+#
+# Nos cinco hooks com pré-gate essa inserção passou a ser feita com `os.path` em vez de
+# `Path(__file__).resolve().parents[2]`: `pathlib` custa 7,2 ms e era o PRIMEIRO import do
+# arquivo, isto é, acontecia antes de o pré-gate de `_leve` poder dizer que o hook não tem
+# nada a fazer neste projeto.

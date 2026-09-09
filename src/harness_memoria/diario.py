@@ -32,6 +32,23 @@ FERRAMENTAS_DE_ESCRITA = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 SUFIXOS_DESDOBRAMENTO = "bcdefghij"
 _PADRAO_MES = "[0-9][0-9][0-9][0-9]-[0-9][0-9]*.md"
 
+#: Fronteira de entrada dentro do arquivo do mês: `## ` **com data**, casada por lookahead
+#: (o cabeçalho da entrada fica no bloco, então o leitor não reprefixa `"## "`).
+#:
+#: A data é obrigatória porque partir por `^## ` cru parte a entrada no exemplo de formato
+#: que ela mesma documenta: medido, uma entrada de 411 ch com um bloco ```markdown fazia
+#: `ultima_entrada` devolver 237 ch começando no MEIO da cerca, com a data PLACEHOLDER
+#: (`AAAA-MM-DD` — e com o `**Estado:**` do EXEMPLO, o que dá ao fragmento cara de entrada
+#: inteira), e fazia `becos_sem_saida` perder o prefixo de data dos itens daquela entrada.
+#: O bloco se anuncia "última entrada do diário" e entregava fragmento com data falsa.
+#:
+#: Custo declarado: `## ` sem data deixa de ser fronteira de entrada. É a mesma exigência
+#: que o regex de `auditar_ordem_do_diario` já faz e que a regra 5 do README do diário
+#: ("datas absolutas") manda; para o caso não ficar mudo, `auditar_diario` reprova o
+#: arquivo com `^## ` sem data.
+_FRONTEIRA_ENTRADA = re.compile(r"^(?=## \d{4}-\d{2}-\d{2})", re.MULTILINE)
+_DATA_DA_ENTRADA = re.compile(r"## (\d{4}-\d{2}-\d{2})")
+
 
 def forcar_utf8() -> None:
     """No Windows o stdout padrão é cp1252 e engasga em acento e em seta.
@@ -94,10 +111,34 @@ def anexar_entrada(
     if _contar_linhas(destino) > cfg.teto_linhas:
         print(
             f"[diario] {destino.name} passou de {cfg.teto_linhas} linhas — "
-            f"a próxima entrada abre um novo arquivo.",
+            f"{remediacao_do_teto(cfg, destino)}",
             file=sys.stderr,
         )
     return destino
+
+
+def remediacao_do_teto(cfg: ConfigDiario, arquivo: Path) -> str:
+    """O que FAZER quando o arquivo do mês passa do teto de linhas.
+
+    Duas frases porque as duas saídas são diferentes, e a instrução impossível é pior que
+    nenhuma. Reproduzido: com os 10 arquivos do mês (`AAAA-MM.md` + os
+    `len(SUFIXOS_DESDOBRAMENTO)` sufixos) no teto, `caminho_mes` devolve `AAAA-MMj.md`,
+    `anexar_entrada` o leva a 404 e 408 linhas e imprimia DUAS VEZES "a próxima entrada
+    abre um novo arquivo" — não abre, não há próximo sufixo —, enquanto `auditar_diario`
+    reprovava com "feche e abra o próximo sufixo". Auditor que produz falha sem correção é
+    o jeito mais rápido de ensinar a ignorá-lo (princípio 9).
+
+    Não estendemos os sufixos: 10 arquivos de 400 linhas no mesmo mês é sinal de que o mês
+    fechado devia ter ido para `arquivo/`, não de que faltam letras.
+    """
+    if not arquivo.stem.endswith(SUFIXOS_DESDOBRAMENTO[-1]):
+        return "a próxima entrada abre um novo arquivo."
+    return (
+        f"é o último dos {len(SUFIXOS_DESDOBRAMENTO) + 1} arquivos do mês e não há próximo "
+        "sufixo: mova os MAIS ANTIGOS do mês para `arquivo/` (o digest de becos varre "
+        "`arquivo/` também, então a ordem não muda) ou aumente `diario.teto_linhas` (hoje "
+        f"{cfg.teto_linhas}) no `.claude/harness.json`."
+    )
 
 
 def _cabecalho_mes(quando: datetime) -> str:
@@ -135,9 +176,17 @@ class _lock:
         return self  # segue sem lock em vez de perder a entrada
 
     def __exit__(self, *_):
+        # Só quem DETÉM o lock o remove. Antes, quem desistia (fd=None depois de 40×0,25 s)
+        # apagava o lock alheio: no Windows isso levanta PermissionError [WinError 32] após
+        # 10,0 s medidos, com o corpo JÁ gravado, e o session_end imprime a mensagem falsa
+        # "hook falhou sem gravar"; no Linux (metade da matriz do CI) o unlink de arquivo
+        # aberto SUCEDE e a exclusão mútua entre duas sessões terminando junto simplesmente
+        # deixa de existir. O reaper de 60 s do `__enter__` continua sendo o que cobre lock
+        # de processo morto — ele não resolve este caso, em que os dois estão vivos.
         if self.fd is not None:
             os.close(self.fd)
-        self.caminho.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                self.caminho.unlink(missing_ok=True)
         return False
 
 
@@ -177,10 +226,10 @@ def ultima_entrada(pasta: Path) -> tuple[str, str] | None:
             texto = alvo.read_text(encoding="utf-8")
         except OSError:
             continue
-        partes = re.split(r"^## ", texto, flags=re.MULTILINE)
+        partes = _FRONTEIRA_ENTRADA.split(texto)
         if len(partes) < 2:
             continue  # só o cabeçalho do mês: ainda não há entrada aqui
-        return alvo.relative_to(pasta).as_posix(), "## " + partes[-1].strip()
+        return alvo.relative_to(pasta).as_posix(), partes[-1].strip()
     return None
 
 
@@ -192,12 +241,40 @@ def partir_em_secoes(corpo: str) -> tuple[str, list[tuple[str, str]]]:
     return cabecalho, secoes
 
 
+def _marca_de_truncamento(rotulo: str, arquivo: str) -> str:
+    """O sinal de que existe mais texto — a última coisa a cair.
+
+    Leva o caminho porque no caso truncado ela pode ser a única linha que sobra do
+    mecanismo de aviso: truncar calado remove o único gatilho de leitura (princípio 8).
+    """
+    onde = f" em `{arquivo}`" if arquivo else ""
+    return f"\n\n[…{rotulo} truncada; leia a entrada completa{onde}…]"
+
+
+def _nota_de_omissao(nomes: list[str], restantes: int, onde: str) -> str:
+    mais = f" e mais {restantes}" if restantes else ""
+    return (
+        "\n> Seções omitidas por espaço, da menos prioritária para a mais: "
+        f"{', '.join(nomes)}{mais}{onde}.\n"
+    )
+
+
 def recortar_entrada(corpo: str, cfg: ConfigDiario, arquivo: str = "") -> str:
     """Encaixa a entrada no limite de injeção descartando seção INTEIRA, por prioridade.
 
     Ver `ConfigDiario.prioridade_secoes` para o porquê da ordem. O que sai é sempre nomeado
     na nota final: o leitor precisa saber que existe mais, senão o recorte vira falso
     completo — o mesmo defeito de um índice truncado em silêncio.
+
+    A nota e a marca são montadas ANTES do corte e concatenadas DEPOIS, porque cortar o
+    texto já montado as comia junto. Reproduzido com `ConfigDiario()` de fábrica: entrada
+    de 11.223 ch saía com 5.045 ch — 45 ch ACIMA do limite declarado — sem a nota de
+    omissão e sem o caminho do arquivo. As seções de retomada (`Aberto / Próximo passo`,
+    `Retomar com`) tinham sido descartadas pela prioridade e NOMEADAS na nota; o corte no
+    fim comia justamente a nota, então a função quebrava o contrato do próprio docstring e
+    o leitor não tinha como saber o que faltava nem onde achar. O excesso sobre o limite
+    ainda torna inútil qualquer orçamento montado sobre `limite_injecao_chars`, que é o que
+    o bloco do `SessionStart` faz.
     """
     limite = cfg.limite_injecao_chars
     if len(corpo) <= limite:
@@ -205,7 +282,8 @@ def recortar_entrada(corpo: str, cfg: ConfigDiario, arquivo: str = "") -> str:
 
     cabecalho, secoes = partir_em_secoes(corpo)
     if not secoes:
-        return corpo[:limite].rstrip() + "\n\n[…entrada truncada; leia o arquivo completo…]"
+        marca = _marca_de_truncamento("entrada", arquivo)
+        return corpo[: max(0, limite - len(marca))].rstrip() + marca
 
     def rank(titulo: str) -> int:
         for i, alvo in enumerate(cfg.prioridade_secoes):
@@ -213,33 +291,48 @@ def recortar_entrada(corpo: str, cfg: ConfigDiario, arquivo: str = "") -> str:
                 return i
         return len(cfg.prioridade_secoes)  # seção fora do formato sai antes das conhecidas
 
-    def montar(indices: set[int], omitidas: list[str]) -> str:
+    def nota_de(omitidas: list[str]) -> str:
+        if not omitidas:
+            return ""
+        onde = f" — entrada completa em `{arquivo}`" if arquivo else ""
+        nomes, restantes = list(omitidas), 0
+        # Piso: a nota não pode comer o corpo que ela anuncia. Os sete nomes do default
+        # somam ~190 ch, que é 13% de um limite de 1.500 e 38% de um de 500.
+        while len(nomes) > 1 and len(_nota_de_omissao(nomes, restantes, onde)) > limite / 3:
+            nomes.pop()
+            restantes += 1
+        return _nota_de_omissao(nomes, restantes, onde)
+
+    def montar(indices: set[int], nota: str) -> str:
         texto = cabecalho.rstrip() + "\n"
         for i in sorted(indices):
             texto += f"\n### {secoes[i][0]}\n{secoes[i][1].strip()}\n"
-        if omitidas:
-            onde = f" — entrada completa em `{arquivo}`" if arquivo else ""
-            texto += (
-                "\n> Seções omitidas por espaço, da menos prioritária para a mais: "
-                f"{', '.join(omitidas)}{onde}.\n"
-            )
-        return texto
+        return texto + nota
 
     manter = set(range(len(secoes)))
     # menos importante primeiro; empate desfeito pela última posição no documento
     fila = sorted(manter, key=lambda i: (-rank(secoes[i][0]), -i))
     omitidas: list[str] = []
 
-    while len(fila) > 1 and len(montar(manter, omitidas)) > limite:
+    while len(fila) > 1 and len(montar(manter, nota_de(omitidas))) > limite:
         vitima = fila.pop(0)
         manter.discard(vitima)
         omitidas.append(secoes[vitima][0])
 
-    saida = montar(manter, omitidas)
-    if len(saida) > limite:
-        # sobrou uma seção só e ela não cabe: aí sim corta o texto, e avisa
-        saida = saida[:limite].rstrip() + "\n\n[…seção truncada; leia o arquivo completo…]"
-    return saida
+    nota = nota_de(omitidas)
+    saida = montar(manter, nota)
+    if len(saida) <= limite:
+        return saida
+
+    # Sobrou uma seção só e ela não cabe: aí sim corta o TEXTO, com a nota e a marca
+    # preservadas fora do corte.
+    marca = _marca_de_truncamento("seção", arquivo)
+    espaco = limite - len(marca) - len(nota)
+    if espaco < 0:
+        # Limite menor que a própria moldura (o menor exercitado no projeto é 1.200 e o
+        # default é 5.000): a nota cede antes da marca, que é o sinal.
+        nota, espaco = "", limite - len(marca)
+    return montar(manter, "")[: max(0, espaco)].rstrip() + marca + nota
 
 
 def becos_sem_saida(pasta: Path, cfg: ConfigDiario) -> tuple[list[str], int]:
@@ -268,8 +361,9 @@ def becos_sem_saida(pasta: Path, cfg: ConfigDiario) -> tuple[list[str], int]:
         except OSError:
             continue
         # entradas vêm em ordem cronológica no arquivo; queremos a mais recente antes
-        for bloco in reversed(re.split(r"^## ", texto, flags=re.MULTILINE)[1:]):
-            data = (re.match(r"(\d{4}-\d{2}-\d{2})", bloco) or [""])[0]
+        for bloco in reversed(_FRONTEIRA_ENTRADA.split(texto)[1:]):
+            achou_data = _DATA_DA_ENTRADA.match(bloco)
+            data = achou_data.group(1) if achou_data else ""
             secao = padrao_secao.search(bloco)
             if not secao:
                 continue
@@ -277,7 +371,16 @@ def becos_sem_saida(pasta: Path, cfg: ConfigDiario) -> tuple[list[str], int]:
                 item = " ".join(cru.split())
                 if not item:
                     continue
-                chave = item.lower()[:60]
+                # A chave é o item INTEIRO. Era `item.lower()[:60]`, e a grafia legada, que
+                # o corpus existente tem (`- {abordagem} → falhou porque {razão}. **Não
+                # repetir.**`), põe a abordagem primeiro: quem escreve repete a frase de
+                # abertura e diverge no fim, onde mora a lição. Medido: 100 becos distintos
+                # sobre 7 subsistemas colapsavam em 7 (93% de perda) e um corpus de 2.160 becos
+                # todos distintos sobrevivia 175 (91,9%) — sem truncamento envolvido, os
+                # itens medem 207 ch contra o teto de 240. E como `total` é contado
+                # PÓS-dedup, o bloco anunciava "7 de 7" e o rodapé "os outros 0": o aviso
+                # de corte mentia na mesma taxa do corte.
+                chave = item.lower()
                 if chave in vistos:
                     continue
                 vistos.add(chave)
@@ -302,9 +405,18 @@ def _resumir_beco(item: str, teto: int) -> str:
     """
     if len(item) <= teto:
         return item
-    m = re.search(r"\*\*Não repetir:?\*\*\s*(.*)", item)
-    if m:
-        licao = m.group(1)
+    # `[.:]?` dentro do negrito porque `\*\*Não repetir:?\*\*` NÃO casava `**Não repetir.**`
+    # — o ponto está dentro do negrito, e essa é justamente a grafia que o bloco canônico do
+    # template, a skill `/encerrar-sessao` e o fixture do CI prescrevem. Medido com teto
+    # 240: item de 314 ch terminando em `**Não repetir.** …` saía com 241 ch cortados no
+    # meio da palavra e a lição AUSENTE; o mesmo item com dois-pontos saía com a lição
+    # intacta. A instrução de autoria prometia o oposto do que o mecanismo fazia.
+    m = re.search(r"\*\*Não repetir[.:]?\*\*:?\s*(.*)", item)
+    licao = m.group(1).strip() if m else ""
+    # Grupo VAZIO (`**Não repetir.**` sem nada depois, que é a grafia legada, que o corpus
+    # existente tem) cai no corte pela frente: emitir `… **Não repetir:** ` sem lição seria
+    # um beco em branco no contexto — pior que truncar avisando.
+    if licao:
         espaco = teto - len(licao) - len("… **Não repetir:** ")
         if espaco > 40:
             return f"{item[: m.start()][:espaco].rstrip()}… **Não repetir:** {licao}"

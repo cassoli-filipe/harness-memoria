@@ -26,7 +26,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -37,8 +37,14 @@ from ..adr import (
     dados_dos_adrs,
     ler_frontmatter,
 )
-from ..config import Config, caminho_config, invioaveis
-from ..diario import SECAO_BECOS, arquivos_do_diario
+from ..config import (
+    CHAVES_OBRIGATORIAS_DE_REGRA,
+    Config,
+    _mascara_de_cerca,
+    caminho_config,
+    invioaveis,
+)
+from ..diario import SECAO_BECOS, arquivos_do_diario, remediacao_do_teto
 
 #: Uma citação a ADR morto é legítima quando a vizinhança diz que houve substituição.
 #: É o que separa "siga a ADR-0007" de "a ADR-0023 substituiu a ADR-0007".
@@ -88,6 +94,52 @@ class Contexto:
         return saida
 
 
+def _fora_de_cerca(texto: str) -> str:
+    """O mesmo texto sem as linhas dentro de bloco de código.
+
+    Ilustração não é instrução, e a máscara é a MESMA que `invioaveis()` usa
+    (`config._mascara_de_cerca`) de propósito: duas implementações de "isto aqui é só
+    exemplo" divergem na primeira correção, e essa já trata cerca aninhada, marcador de
+    quatro backticks e cerca não fechada (que degrada para o texto inteiro, o comportamento
+    anterior à máscara).
+
+    Só para os cheques cuja contraparte no runtime também ignora cerca. Onde o mecanismo
+    lê dentro dela, o auditor tem de ler também — ver o comentário do cheque de mês em
+    `auditar_diario`.
+    """
+    linhas = texto.splitlines()
+    cercado = _mascara_de_cerca(linhas)
+    return "\n".join(x for x, dentro in zip(linhas, cercado, strict=True) if not dentro)
+
+
+_COMENTARIO_HTML = re.compile(r"(?s)<!--.*?-->")
+
+
+def _sem_comentario_html(texto: str) -> str:
+    """O mesmo texto sem comentário HTML — ao lado de `_fora_de_cerca`, não no lugar dela.
+
+    Nasceu de um caso concreto: a linha de exemplo do índice de ADR virou
+    `<!-- | [0001](0001-exemplo.md) | ... | -->` para não deixar link morto na tabela
+    visível de um template de fábrica, e o cheque de presença (`f.name not in texto_indice`)
+    lia o arquivo como texto puro — o comentário SATISFAZIA o cheque. A auditoria aprovava
+    com "índice sincronizado" enquanto a tabela visível ficava com zero linhas para o único
+    ADR do projeto; todo consumidor novo nascia "sincronizado" sem nunca ter tido um índice
+    de verdade. Cheque satisfeito por texto que ninguém vê equivale a cheque inexistente —
+    a mesma doença do princípio 11, só que do lado do falso NEGATIVO de falha.
+
+    Só entra nos cheques de PRESENÇA — "este item real já está listado aqui" — porque neste
+    projeto o comentário HTML é convenção de andaime (linha de exemplo comentada, para
+    descomentar na hora certa) e nota para humano (`<!-- Caminho natural de quem
+    procura... -->`), nunca conteúdo que o mecanismo deveria contar como dado. Cheques que
+    procuram um padrão INDESEJADO em vez de confirmar presença — `auditar_referencias_a_adr_morto`
+    e `auditar_scripts_citados` — deliberadamente NÃO usam este filtro: quem lê o arquivo
+    bruto numa sessão é o agente, não um navegador renderizando HTML, então uma referência
+    ruim escondida num comentário continua enganando-o e tirar o filtro ali abriria um ponto
+    cego novo — o oposto do que este helper existe para consertar.
+    """
+    return _COMENTARIO_HTML.sub("", texto)
+
+
 # --------------------------------------------------------------------------- #
 # ADRs
 # --------------------------------------------------------------------------- #
@@ -103,12 +155,31 @@ def auditar_adrs(ctx: Contexto) -> None:
     if not indice.exists():
         ctx.falhar(f"{ctx.cfg.adr.pasta}/README.md (índice) não existe")
         return
-    texto_indice = indice.read_text(encoding="utf-8")
+    # `_sem_comentario_html`: sem ela, uma linha de exemplo comentada (o template distribui
+    # uma) satisfaz "arquivo está no índice" sem nenhuma linha visível na tabela — ver o
+    # docstring do helper para o caso medido.
+    texto_indice = _sem_comentario_html(indice.read_text(encoding="utf-8"))
 
     arquivos = arquivos_adr(pasta)
     if not arquivos:
         ctx.avisar("nenhum ADR encontrado")
         return
+
+    # Colisão de número tem de ser cobrada AQUI, sobre os arquivos, porque `dados_dos_adrs`
+    # indexa por `f.name[:4]` e a segunda leitura sobrescreve a primeira em silêncio.
+    # Medido com `0001-guardar-segredo-no-git.md` (superseded) ao lado de
+    # `0001-nunca-guardar-segredo.md` (accepted): `arquivos_adr` acha 2, `dados_dos_adrs`
+    # devolve 1 chave e a auditoria inteira saía com falhas=[] avisos=[] — o arquivo
+    # sombreado não é cobrado do índice, o status dele não é validado e a supersessão dele
+    # não é checada. Duas branches criando ADR ao mesmo tempo é o caminho normal para cá.
+    for num, quantos in sorted(Counter(f.name[:4] for f in arquivos).items()):
+        if quantos > 1:
+            nomes = ", ".join(f.name for f in arquivos if f.name[:4] == num)
+            ctx.falhar(
+                f"ADR-{num} tem {quantos} arquivos: {nomes} — renumere um deles. O índice "
+                f"injetado e a auditoria leem só um dos dois; o outro é invisível para os "
+                f"dois, inclusive o status e a supersessão dele"
+            )
 
     dados = ctx.adrs
     for num, d in sorted(dados.items()):
@@ -152,6 +223,9 @@ def _auditar_supersessao(ctx: Contexto, dados: dict) -> None:
 
     Sem os dois lados, um ADR novo pode substituir outro sem que quem lê o antigo saiba —
     e ponteiro velho faz mais dano que ponteiro nenhum.
+
+    `substituido-por:` é exigido de `superseded`, não de todo status morto: `deprecated` é
+    o status de quem morreu sem substituto, e é para esse caso que ele existe.
     """
     agregados = set(ctx.cfg.adr.agregados)
 
@@ -169,11 +243,20 @@ def _auditar_supersessao(ctx: Contexto, dados: dict) -> None:
                 f"ADR-{num} tem 'substituido-por' mas status é "
                 f"'{d['status'] or '(vazio)'}' (esperado 'superseded')"
             )
-        if d["status"] in STATUS_MORTOS and not d["substituido_por"]:
+        # `superseded`, e não `STATUS_MORTOS`: `deprecated` significa exatamente "não vale
+        # mais e NADA o substituiu" — é o que o `template/docs/adr/README.md` documenta.
+        # Exigir `substituido-por:` dos dois deixava o `deprecated` sem saída possível: sem
+        # o campo caía aqui, com o campo caía no cheque de cima ("esperado 'superseded'"), e
+        # nenhum ADR `deprecated` passava na auditoria — justo o status que a skill manda
+        # usar quando nada substituiu. Falha sem correção é o jeito mais rápido de ensinar a
+        # ignorar o auditor (princípio 9), e o próprio motor já pressupõe morto-sem-substituto
+        # nos fallbacks "(sem substituto declarado)" mais abaixo.
+        if d["status"] == "superseded" and not d["substituido_por"]:
             ctx.falhar(
-                f"ADR-{num} está {d['status']} e não declara `substituido-por:` — "
+                f"ADR-{num} está superseded e não declara `substituido-por:` — "
                 f"o índice injetado no início da sessão não tem como dizer o que seguir "
-                f"no lugar, e ADR morto sem substituto é pior que ADR nenhum"
+                f"no lugar, e ADR morto sem substituto é pior que ADR nenhum. Se nada o "
+                f"substituiu, o status é `deprecated`"
             )
 
     for num, d in sorted(dados.items()):
@@ -369,7 +452,12 @@ def auditar_indice_por_dominio(ctx: Contexto) -> None:
     indice = ctx.cfg.indice_adr
     if not indice.exists():
         return
-    trecho = indice.read_text(encoding="utf-8").split("## Por domínio")
+    # Mesmo filtro do índice principal, e pela mesma razão: um comentário HTML de VÁRIAS
+    # linhas pode ter `- **{domínio}:** NNNN` como uma das linhas internas, e essa linha
+    # começa com `-` — passaria pelo `startswith("-")` abaixo como se fosse entrada real.
+    # Comentário de uma linha só (`<!-- - ... -->`) já falha nesse teste porque começa com
+    # `<!--`, mas não há razão para o cheque depender de quantas linhas o comentário ocupa.
+    trecho = _sem_comentario_html(indice.read_text(encoding="utf-8")).split("## Por domínio")
     if len(trecho) < 2:
         return
     for linha in trecho[1].splitlines():
@@ -378,9 +466,15 @@ def auditar_indice_por_dominio(ctx: Contexto) -> None:
         for num in re.findall(r"\b(\d{4})\b", linha):
             d = ctx.adrs.get(num)
             if d and d["status"] in STATUS_MORTOS and f"{num} (" not in linha:
+                # A marca é derivada do frontmatter, não fixa: mandar escrever
+                # `(superada → NNNN)` num `deprecated` — que por definição não tem NNNN —
+                # é instruir o impossível, e era o segundo cheque em que caía quem
+                # consertava o primeiro.
+                subs = " ".join(d["substituido_por"])
+                marca = f"{num} (superada → {subs})" if subs else f"{num} (deprecated)"
                 ctx.falhar(
                     f"{ctx.cfg.adr.pasta}/README.md, lista por domínio: {num} está "
-                    f"{d['status']} e aparece sem marca — escreva `{num} (superada → NNNN)`"
+                    f"{d['status']} e aparece sem marca — escreva `{marca}`"
                 )
 
 
@@ -456,9 +550,15 @@ def auditar_mapa_de_adr_por_caminho(ctx: Contexto) -> None:
                 ctx.falhar(f"CLAUDE.md, mapa de ADR por caminho: ADR-{num} não existe")
             elif d["status"] in STATUS_MORTOS:
                 subs = ", ".join(f"ADR-{s}" for s in d["substituido_por"])
+                # Sem substituto a instrução não pode ser "troque por": `deprecated` é o
+                # status de quem não tem por quem ser trocado, e ele passou a ser legal aqui.
+                saida = (
+                    f"troque por {subs}"
+                    if subs
+                    else "remova a linha ou aponte o ADR que vale hoje — nada o substituiu"
+                )
                 ctx.falhar(
-                    f"CLAUDE.md, mapa de ADR por caminho: ADR-{num} está {d['status']} — "
-                    f"troque por {subs or '(sem substituto declarado)'}"
+                    f"CLAUDE.md, mapa de ADR por caminho: ADR-{num} está {d['status']} — {saida}"
                 )
     if not linhas_uteis:
         ctx.falhar("CLAUDE.md, mapa de ADR por caminho: tabela vazia")
@@ -492,19 +592,47 @@ def auditar_diario(ctx: Contexto) -> None:
         )
     else:
         for arq in candidatos:
-            n = len(arq.read_text(encoding="utf-8").splitlines())
+            texto = arq.read_text(encoding="utf-8")
+            n = len(texto.splitlines())
             if n > ctx.cfg.diario.teto_linhas:
+                # A remediação vem de `diario.remediacao_do_teto` porque no décimo arquivo
+                # do mês não existe "próximo sufixo": com os 10 no teto, esta falha mandava
+                # fechar e abrir um arquivo que `caminho_mes` não sabe gerar. Uma frase, um
+                # lugar — a mesma que o `anexar_entrada` imprime.
                 ctx.falhar(
                     f"{ctx.cfg.diario.pasta}/{arq.name} tem {n} linhas "
-                    f"(teto {ctx.cfg.diario.teto_linhas}) — feche e abra o próximo sufixo"
+                    f"(teto {ctx.cfg.diario.teto_linhas}) — "
+                    f"{remediacao_do_teto(ctx.cfg.diario, arq)}"
                 )
-            texto = arq.read_text(encoding="utf-8")
+            # Data fora do mês do arquivo é cobrada sobre o texto INTEIRO, cerca de código
+            # inclusive, e isso é deliberado: `diario._FRONTEIRA_ENTRADA` não conhece cerca,
+            # então um `## 2026-01-15` dentro de ```markdown É fronteira de entrada para o
+            # mecanismo e a reinjeção parte ali. Ignorar a cerca aqui deixaria o auditor
+            # cego para um corte que acontece de verdade.
             for data in re.findall(r"^## (\d{4}-\d{2}-\d{2})", texto, flags=re.MULTILINE):
                 if not data.startswith(mes):
                     ctx.falhar(
                         f"{ctx.cfg.diario.pasta}/{arq.name} contém entrada de {data}, "
                         f"fora do mês do arquivo"
                     )
+            # `## ` SEM data, ao contrário, é cobrada só FORA de cerca — dentro dela o
+            # cabeçalho não é fronteira nem para o mecanismo nem para quem lê, e reprovar um
+            # exemplo de formato seria falso positivo (princípio 9).
+            #
+            # O cheque existe porque `_FRONTEIRA_ENTRADA` passou a exigir `## AAAA-MM-DD`:
+            # partir por `^## ` cru partia a entrada no exemplo de formato dentro de cerca
+            # (411 ch de entrada voltavam como 237, começando na data placeholder). O custo
+            # dessa exigência é que `## Sessão de terça` deixa de abrir entrada e o texto
+            # entra colado na anterior, em silêncio, se nada reprovar. Não é convenção nova:
+            # o regex de `auditar_ordem_do_diario` já exigia a data — só não denunciava.
+            for titulo in re.findall(
+                r"^## (?!\d{4}-\d{2}-\d{2})(.+)$", _fora_de_cerca(texto), flags=re.MULTILINE
+            ):
+                ctx.falhar(
+                    f"{ctx.cfg.diario.pasta}/{arq.name}: cabeçalho `## {titulo.strip()}` sem "
+                    f"data — entrada abre com `## AAAA-MM-DD`. Sem a data ela não é fronteira "
+                    f"de entrada e o texto vai para o contexto colado na entrada anterior"
+                )
 
     if not (pasta / "README.md").exists():
         ctx.falhar(f"{ctx.cfg.diario.pasta}/README.md (regras do diário) não existe")
@@ -515,11 +643,11 @@ def auditar_diario(ctx: Contexto) -> None:
 def auditar_ordem_do_diario(ctx: Contexto) -> None:
     """Entradas em ordem CRONOLÓGICA dentro do arquivo — a mais nova no fim.
 
-    Não é preferência de estilo: `diario.ultima_entrada` pega o último bloco `##` do
-    arquivo. Num diário escrito do mais recente para o mais antigo — que é uma convenção
-    perfeitamente razoável e era a do ValidaNI — isso injeta a entrada MAIS VELHA no início
-    de cada sessão, calado. O digest de becos sem saída sofre do mesmo: ele inverte a lista
-    assumindo cronologia, então o orçamento é gasto pelos itens mais antigos.
+    Não é preferência de estilo: `diario.ultima_entrada` pega o último bloco
+    `## AAAA-MM-DD` do arquivo. Num diário escrito do mais recente para o mais antigo — que
+    é uma convenção perfeitamente razoável e era a do ValidaNI — isso injeta a entrada MAIS
+    VELHA no início de cada sessão, calado. O digest de becos sem saída sofre do mesmo: ele
+    inverte a lista assumindo cronologia, então o orçamento é gasto pelos itens mais antigos.
 
     Duas convenções não podem coexistir sem que o leitor saiba qual está lendo; esta é a
     que o mecanismo assume, e aqui ela é verificada.
@@ -565,10 +693,18 @@ def auditar_claude_md(ctx: Contexto) -> None:
             f"Arquivo de instrução que cresce é Context Bloat, e o custo é pago em toda sessão"
         )
 
+    # Os dois cheques abaixo olham o texto FORA de cerca. Medido num CLAUDE.md correto: um
+    # bloco ```markdown que documenta o formato do mapa caminho→ADR gerava falha de link
+    # quebrado, e reprovar o build por documentação correta é o pior defeito que um auditor
+    # pode ter — ele ensina a ignorar os outros cheques (princípio 9). O gatilho é
+    # provável justamente neste harness, cujo CLAUDE.md documenta formatos com exemplos.
+    # Vale igual para o ponteiro do mês: exemplo dentro de cerca não é ponteiro.
+    texto_util = _fora_de_cerca(texto)
+
     hoje = datetime.now()
     mes = hoje.strftime("%Y-%m")
     ponteiro = f"{ctx.cfg.diario.pasta}/{mes}.md"
-    if ponteiro not in texto:
+    if ponteiro not in texto_util:
         # Ponteiro defasado não é cosmético: aponta para arquivo cujo head ficou atrás, e o
         # agente que segue o ponteiro em vez da injeção perde o mês inteiro.
         nivel = ctx.falhar if hoje.day >= ctx.cfg.diario.dia_limite_rotacao else ctx.avisar
@@ -577,9 +713,14 @@ def auditar_claude_md(ctx: Contexto) -> None:
             f"atualize o ponteiro"
         )
 
-    for alvo in re.findall(r"\]\(((?!https?://|#|mailto:)[^)]+)\)", texto):
-        if not (ctx.raiz / alvo.split("#")[0]).exists():
-            ctx.falhar(f"CLAUDE.md aponta para `{alvo}`, que não existe")
+    for alvo in re.findall(r"\]\(((?!https?://|#|mailto:)[^)]+)\)", texto_util):
+        # `[texto](caminho "Título")` é sintaxe válida de markdown e o título NÃO faz parte
+        # do caminho. Sem cortá-lo, `docs/guia.md "O guia"` reprovava com o arquivo em
+        # disco — segundo falso positivo do mesmo cheque, medido no mesmo arquivo.
+        partes = alvo.split()
+        caminho = partes[0].split("#")[0] if partes else ""
+        if caminho and not (ctx.raiz / caminho).exists():
+            ctx.falhar(f"CLAUDE.md aponta para `{caminho}`, que não existe")
 
 
 def auditar_invioaveis(ctx: Contexto) -> None:
@@ -591,6 +732,14 @@ def auditar_invioaveis(ctx: Contexto) -> None:
     nenhum — porque quem o instalou acha que está protegido.
 
     Item longo não é truncado, é reprovado: meia proibição lê como permissão.
+
+    Audita a SEÇÃO, não a mensagem: a extração aqui é feita sem `max_itens` — o contrato
+    está no docstring de `config.invioaveis` — porque o corte é orçamento da reafirmação e
+    auditar o recorte seria auditar o que já cabe. Medido: um CLAUDE.md com 8 itens curtos
+    e um 9º de 218 chars passava sem UMA LINHA de aviso, porque o 9º nunca chegava ao
+    cheque de teto. Perdia duas vezes — a regra não é reafirmada e o teto por item deixa de
+    existir a partir do 9º —, e em silêncio, ao contrário do índice de ADR, que se anuncia
+    PARCIAL quando corta (princípio 11).
     """
     r = ctx.cfg.reafirmacao
     if not r.habilitado:
@@ -599,7 +748,7 @@ def auditar_invioaveis(ctx: Contexto) -> None:
     if not p.exists():
         return
 
-    regras = invioaveis(ctx.raiz, r)
+    regras = invioaveis(ctx.raiz, replace(r, max_itens=10**6))
     if not regras:
         alvo = f"'{r.secao}'" + (f", sub-bloco '{r.sub_bloco}'" if r.sub_bloco else "")
         ctx.falhar(
@@ -617,6 +766,16 @@ def auditar_invioaveis(ctx: Contexto) -> None:
                 f"O resto do raciocínio continua no item; só a primeira frase entra na "
                 f"reafirmação, e ela precisa caber em uma linha para ser lida"
             )
+
+    if len(regras) > r.max_itens:
+        ctx.falhar(
+            f"CLAUDE.md: a seção de invioláveis tem {len(regras)} itens e a reafirmação "
+            f"leva {r.max_itens} — os {len(regras) - r.max_itens} do fim NÃO são "
+            f"reafirmados, e o corte não se anuncia. Tire da seção o que não é proibição "
+            f"absoluta, ou suba `reafirmacao.max_itens` no harness.json assumindo a "
+            f"mensagem mais longa em toda escrita. Nos três corpora medidos a seção tem 6, "
+            f"7 e 7 itens"
+        )
 
 
 def auditar_harness(ctx: Contexto) -> None:
@@ -660,12 +819,85 @@ def auditar_skill_de_encerramento(ctx: Contexto) -> None:
     )
 
 
+#: A consequência CONCRETA de cada chave que falta, porque é ela que separa este cheque de
+#: um validador de schema: "chave ausente" não diz o que se perde, e o que se perde aqui é
+#: uma guarda inteira.
+_SEM_ALVO = (
+    "`guardar.py` descarta num `continue` calado a regra que não declara o próprio alvo, "
+    "então a guarda existe na config e não bloqueia nada — e não há nem chave errada para "
+    "procurar"
+)
+_CONSEQUENCIA_DE_CHAVE: dict[str, str] = {
+    "padrao": _SEM_ALVO,
+    "regex": _SEM_ALVO,
+    "exemplo": (
+        "`guardar.py --autoteste` gera o caso positivo dentro de um `if exemplo`, então a "
+        "regra não é exercitada em lugar nenhum e o autoteste imprime aprovação sobre uma "
+        "regex que pode estar quebrada"
+    ),
+}
+
+
+#: `permitido_em` que termina em extensão de arquivo. Uma extensão é 1 a 5 caracteres sem
+#: barra depois do último ponto do último segmento — larga o bastante para pegar `.xlsx` e
+#: estreita para não acusar `v1.2` nem um diretório chamado `dados.brutos`. Barra final é o
+#: sinal explícito de diretório e passa sempre.
+_PARECE_ARQUIVO = re.compile(r"[^/\\]\.[A-Za-z0-9]{1,5}$")
+
+
+def auditar_guardas(ctx: Contexto) -> None:
+    """Toda regra de guarda declara as chaves sem as quais ela não age, e `permitido_em`
+    aponta para um diretório.
+
+    Este cheque mora aqui, e não em `carregar()`, por causa do SINAL. Chave desconhecida
+    numa regra continua lançando `ErroDeConfig` na leitura — não tem interpretação válida
+    nenhuma e aparece na hora em que alguém escreve a config. Chave obrigatória AUSENTE é
+    outra coisa: produz uma config que faz parse e funciona, só com uma regra que não age.
+    Lançar por isso significava `_comum.contexto` engolindo o erro e deixando os SEIS
+    hooks inertes — sem reinjeção, sem reafirmação e sem a guarda de `.env` — no consumidor
+    que só atualizou o plugin, com o aviso indo para um stderr que ninguém lê. Reprovar o
+    build é proporcional; desligar o harness em cima de uma config que funcionava não é.
+
+    A seção `guardas` era o ponto cego do auditor: até aqui `grep guardas` neste módulo
+    dava zero linhas, e `carregar()` era o único lugar que podia pegar qualquer coisa dela.
+
+    O cheque de `permitido_em` fecha o outro lado do mesmo ponto cego. A troca de
+    substring por fronteira de caminho em `guardar._sob_prefixo` corrigiu um furo real
+    (`tests/fixtures` liberava `tests/fixtures_antigos/`) e, no mesmo commit e em
+    silêncio, mudou de liberado para BLOQUEADO o `permitido_em` que aponta a um arquivo
+    específico — porque a fronteira exige algo depois do último segmento, e um arquivo
+    não tem nada depois de si. Achado do revisor. Config que afirma uma exceção que o
+    hook nega é a mesma classe de `_CHAVES_DE_REGRA`, e o lugar de acusar é aqui.
+    """
+    for secao, obrigatorias in CHAVES_OBRIGATORIAS_DE_REGRA.items():
+        for i, regra in enumerate(getattr(ctx.cfg.guardas, secao)):
+            if not isinstance(regra, dict):
+                continue  # `carregar()` já reprovou: regra que não é objeto nem chega aqui
+            ident = str(regra.get("padrao") or regra.get("regex") or "").strip()
+            onde = f"`guardas.{secao}[{i}]`" + (f", `{ident}`" if ident else "")
+            for chave in obrigatorias:
+                if str(regra.get(chave) or "").strip():
+                    continue
+                ctx.falhar(
+                    f"{ctx.rel(caminho_config(ctx.raiz))}: {onde} não declara `{chave}` — "
+                    f"{_CONSEQUENCIA_DE_CHAVE[chave]}"
+                )
+            for alvo in tuple(regra.get("permitido_em") or ()):
+                if _PARECE_ARQUIVO.search(str(alvo)):
+                    ctx.falhar(
+                        f"{ctx.rel(caminho_config(ctx.raiz))}: {onde} tem "
+                        f'`permitido_em: ["{alvo}"]`, que parece um ARQUIVO — o prefixo é '
+                        f"sempre um diretório, e apontá-lo a um arquivo NÃO libera aquele "
+                        f"arquivo: bloqueia. Escreva o diretório que o contém."
+                    )
+
+
 def auditar_config_versionada(ctx: Contexto) -> None:
     """O `harness.json` não pode estar no `.gitignore`.
 
     A presença desse arquivo é o gate do harness. Se ele fica de fora do versionamento, o
     projeto passa a ter dois comportamentos: na máquina de quem o criou, o harness funciona;
-    em qualquer checkout novo — o runner do CI, outra máquina, outra pessoa — os cinco hooks
+    em qualquer checkout novo — o runner do CI, outra máquina, outra pessoa — os seis hooks
     ficam **silenciosamente** inertes e a auditoria reprova acusando que o projeto nunca
     adotou o harness. Diagnóstico enganoso, e o pior modo de falha que este desenho tem.
 
@@ -771,6 +1003,7 @@ CHECKS_GENERICOS = (
     auditar_invioaveis,
     auditar_harness,
     auditar_skill_de_encerramento,
+    auditar_guardas,
     auditar_config_versionada,
 )
 

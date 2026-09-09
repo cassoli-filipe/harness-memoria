@@ -161,6 +161,14 @@ class ConfigReafirmacao:
     #: instrução de encurtar a primeira frase. Truncar geraria regra pela metade, e
     #: meia proibição lida como permissão.
     teto_item_chars: int = 150
+    #: Quantas invioláveis a MENSAGEM leva. 8 cobre os três corpora observados — 6, 7 e 7
+    #: regras extraídas, maior item de 85 chars —, e no maior deles a mensagem inteira mede
+    #: 658 chars, que `intervalo_escritas` amortiza em ~44 por escrita.
+    #:
+    #: O corte não é silencioso: a auditoria reprova quando a seção tem mais itens que
+    #: isto, dizendo os dois números. Antes desse cheque o 9º item sumia sem sinal E
+    #: escapava do `teto_item_chars` — medido com um CLAUDE.md de 8 itens curtos e um 9º de
+    #: 218 chars, que passava sem uma linha de aviso. Ver `invioaveis()` para o contrato.
     max_itens: int = 8
     #: Linha final da mensagem, para mandar ao retrieval por caminho em vez de repetir regra
     #: de domínio. `None` omite.
@@ -185,8 +193,14 @@ class ConfigGuardas:
     #: dos prefixos — "todo", e não "algum", para que citar um caminho inocente ao lado do
     #: proibido não vire porta. Chave desconhecida na regra REPROVA: ver `_CHAVES_DE_REGRA`.
     comandos: tuple[dict, ...] = ()
-    #: `.env` e `--no-verify` são bloqueados sempre, sem configuração: valem em todo
-    #: projeto e não há caso legítimo de um agente escrever segredo ou pular hook.
+    #: `.env`, `--no-verify` e `git add --force` são bloqueados sempre, sem configuração:
+    #: valem em todo projeto e não há caso legítimo de um agente escrever segredo, pular
+    #: hook de commit ou passar por cima do .gitignore.
+    #:
+    #: São TRÊS, e por muito tempo os quatro lugares que as listavam citavam duas. A não
+    #: anunciada era justamente a que mais surpreende — `git add -f` tem uso legítimo para
+    #: um humano —, e quem escrevia `false` aqui desligava três coisas achando que eram
+    #: duas.
     universais: bool = True
 
 
@@ -195,10 +209,17 @@ class ConfigAuditoria:
     #: Globs dos arquivos que INSTRUEM um agente, e por isso não podem mandar seguir ADR
     #: morto. Corpo de ADR e entrada de diário ficam fora de propósito: os dois são
     #: imutáveis por regra, então não haveria como corrigir o que o cheque reprovasse.
+    #:
+    #: `.claude/rules/**/*.md` entra por prevenção: a plataforma carrega essas regras ao
+    #: lado do CLAUDE.md, com `paths:` para escopo por caminho, e nenhum dos seis cheques
+    #: de ponteiro velho as enxergava — um ADR morto citado numa rule passava o CI.
+    #: Nenhum projeto observado usa o recurso ainda, e é mais barato incluir o padrão antes
+    #: do primeiro do que descobrir a lacuna com uma regra errada em produção.
     fontes_operacionais: tuple[str, ...] = (
         "CLAUDE.md",
         "AGENTS.md",
         "README.md",
+        ".claude/rules/**/*.md",
         ".claude/settings.json",
         ".claude/hooks/*",
         ".claude/skills/*/SKILL.md",
@@ -316,6 +337,39 @@ _CHAVES_DE_REGRA: dict[str, frozenset[str]] = {
     "comandos": frozenset({"regex", "permitido_em", "motivo", "exemplo"}),
 }
 
+#: Chaves EXIGIDAS em cada regra. Chave que falta é o outro lado da mesma moeda da chave
+#: desconhecida — nos dois casos a config afirma uma guarda que não age —, mas o SINAL é
+#: outro, e por isso este cheque vive na AUDITORIA (`auditar.auditar_guardas`) e não aqui:
+#: `carregar()` só reprova a chave DESCONHECIDA.
+#:
+#: A distinção: chave desconhecida não tem interpretação válida nenhuma e aparece na hora
+#: em que alguém escreve a config; chave obrigatória ausente produz uma config que faz
+#: parse e FUNCIONA, só não está exercitada. Lançar aqui cobrava caro demais por essa
+#: diferença — `_comum.contexto` engole `ErroDeConfig`, então o consumidor que atualizasse
+#: o plugin com uma regra de `comandos` sem `exemplo` (config que funcionava antes) ficaria
+#: com os SEIS hooks inertes: sem reinjeção, sem reafirmação e sem a guarda de `.env`, com
+#: o aviso indo para um stderr que ninguém lê. Regressão silenciosa no upgrade é o modo de
+#: falha que `auditar_config_versionada` existe para consertar. Reprovar o build é
+#: proporcional; desligar o harness não é.
+#:
+#: `padrao`/`regex` porque `guardar.py` descarta a regra num `continue` calado quando falta
+#: (`if not padrao: continue`) — e aqui não há nem chave errada para procurar: a regra
+#: simplesmente não faz nada, em silêncio, que é a classe de bug que `_CHAVES_DE_REGRA`
+#: existe para acabar.
+#:
+#: `exemplo` só em `comandos`, e fecha a outra ponta: `guardar.py:_autoteste` gera o caso
+#: positivo dentro de um `if exemplo`, então sem a chave a guarda não é exercitada em lugar
+#: nenhum e o autoteste imprime aprovação sobre uma regex que pode estar quebrada — guarda
+#: configurada e nunca exercitada é guarda que ninguém sabe se funciona. Em `caminhos` não
+#: se exige, porque lá o autoteste deriva o caso do próprio `padrao`.
+#:
+#: Escreve a prática em vez de mudá-la: nas três configs reais observadas, 3 de 3 regras de
+#: `comandos` já declaravam `exemplo`.
+CHAVES_OBRIGATORIAS_DE_REGRA: dict[str, tuple[str, ...]] = {
+    "caminhos": ("padrao",),
+    "comandos": ("regex", "exemplo"),
+}
+
 
 def _validar_regras_de_guarda(g: ConfigGuardas, arquivo: Path) -> ConfigGuardas:
     for secao, aceitas in _CHAVES_DE_REGRA.items():
@@ -415,6 +469,13 @@ def invioaveis(raiz: Path, cfg: ConfigReafirmacao) -> list[str]:
     a regra na forma numerada. Item que estoure `teto_item_chars` NÃO é truncado — a
     auditoria reprova, pedindo para encurtar a primeira frase. Meia proibição lê como
     permissão, então truncar seria pior que falhar.
+
+    O corte em `cfg.max_itens` é orçamento da MENSAGEM, não filtro de leitura. Quem audita
+    extrai sem teto — `invioaveis(raiz, replace(cfg, max_itens=10**6))` — e cobra o teto
+    por item sobre TODOS os itens da seção, reprovando quando ela tem mais regras do que a
+    reafirmação leva. É o que fecha a perda silenciosa: sem esse cheque, o 9º item
+    desaparecia sem sinal e ainda escapava do `teto_item_chars`, ao contrário do que
+    `limite_indice` faz com o índice de ADR, que se anuncia PARCIAL quando corta.
     """
     p = raiz / "CLAUDE.md"
     if not p.exists():
@@ -437,22 +498,59 @@ def invioaveis(raiz: Path, cfg: ConfigReafirmacao) -> list[str]:
     return itens[: cfg.max_itens]
 
 
+def _mascara_de_cerca(linhas: list[str]) -> list[bool]:
+    """Para cada linha, se ela pertence a um bloco de código — a linha da cerca inclusive.
+
+    Ilustração não é política, e sem esta máscara três coisas medidas aconteciam num
+    CLAUDE.md correto: um `# checa antes` dentro de um bloco ```bash contava como título
+    `#` e encerrava a seção de invioláveis, fazendo a 3ª regra desaparecer; um
+    `## Regras invioláveis` escrito dentro de um bloco ```markdown para DOCUMENTAR o
+    formato ganhava da seção real, e a reafirmação saía com a frase de exemplo; e um
+    `- item` de exemplo entrava na lista como proibição do projeto.
+
+    Fecha só com marcador do mesmo caractere e não mais curto que o de abertura, como manda
+    o CommonMark — senão o ``` de dentro de um bloco de quatro backticks fecharia o de
+    fora, e essa é justamente a forma de um arquivo que documenta markdown.
+
+    Cerca aberta e nunca fechada devolve máscara toda `False`, isto é, o comportamento
+    anterior a esta função. É deliberado: com a máscara honesta, um único ``` sobrando
+    esconderia o resto do arquivo e `invioaveis()` devolveria lista vazia — perder a seção
+    inteira por um erro de digitação é pior que o defeito que a máscara corrige.
+    """
+    dentro: list[bool] = []
+    abertura = ""
+    for linha in linhas:
+        s = linha.strip()
+        m = re.match(r"(`{3,}|~{3,})", s)
+        if abertura:
+            if m and set(s) == {abertura[0]} and len(m.group(1)) >= len(abertura):
+                abertura = ""
+            dentro.append(True)
+        elif m:
+            abertura = m.group(1)
+            dentro.append(True)
+        else:
+            dentro.append(False)
+    return [False] * len(linhas) if abertura else dentro
+
+
 def _secao(texto: str, titulo: str) -> str | None:
-    """Corpo de uma seção `##`, casada por PREFIXO do título.
+    """Corpo de uma seção `##`, casada por PREFIXO do título, fora de bloco de código.
 
     Prefixo e não igualdade: `## Regras invioláveis` tem de achar
     `## Regras invioláveis (guardrails)`, que é como o ValidaNI escreve.
     """
     linhas = texto.splitlines()
+    cercado = _mascara_de_cerca(linhas)
     alvo = titulo.strip()
     nivel = len(alvo) - len(alvo.lstrip("#"))
     for i, linha in enumerate(linhas):
-        if not linha.startswith(alvo):
+        if cercado[i] or not linha.startswith(alvo):
             continue
         fim = len(linhas)
         for j in range(i + 1, len(linhas)):
             atual = linhas[j]
-            if atual.startswith("#"):
+            if not cercado[j] and atual.startswith("#"):
                 n = len(atual) - len(atual.lstrip("#"))
                 if n <= nivel:
                     fim = j
@@ -461,37 +559,75 @@ def _secao(texto: str, titulo: str) -> str | None:
     return None
 
 
+def _e_marcador_de_bloco(linha: str) -> bool:
+    """`**NUNCA**` abre bloco; `**Isto vale para agentes e humanos.**` é prosa.
+
+    O critério é o ponto final, e ele vem de um caso medido: uma frase de reforço em
+    negrito no meio do `**NUNCA**` — que é o `sub_bloco` distribuído no
+    `template/harness.json` — cortava 2 das 4 proibições, e a auditoria aprovava. Marcador
+    é rótulo de bloco, então não termina em ponto; frase inteira em negrito reforça a regra
+    e não abre bloco novo. Negrito terminado em `:` continua sendo marcador — é rótulo, e
+    `_primeira_frase` já trata esse caso do lado do item.
+    """
+    m = re.fullmatch(r"\*\*([^*]+)\*\*", linha)
+    return bool(m) and not m.group(1).rstrip().endswith(".")
+
+
 def _sub_bloco(corpo: str, marcador: str) -> str | None:
     """Trecho entre um marcador em negrito e o próximo marcador do mesmo tipo."""
     linhas = corpo.splitlines()
+    cercado = _mascara_de_cerca(linhas)
     inicio = None
     for i, linha in enumerate(linhas):
-        if linha.strip() == marcador.strip():
+        if not cercado[i] and linha.strip() == marcador.strip():
             inicio = i + 1
             break
     if inicio is None:
         return None
     for j in range(inicio, len(linhas)):
         s = linhas[j].strip()
-        # outro marcador de bloco: negrito sozinho na linha
-        if s != marcador.strip() and re.fullmatch(r"\*\*[^*]+\*\*", s):
+        if not cercado[j] and s != marcador.strip() and _e_marcador_de_bloco(s):
             return "\n".join(linhas[inicio:j])
     return "\n".join(linhas[inicio:])
 
 
+#: Recuo mínimo, em colunas além do primeiro item da lista, para um bullet ser SUB-item.
+#: Dois, e não "qualquer recuo", porque é o que o CommonMark renderiza: com 1 espaço os
+#: dois bullets aparecem no mesmo nível na tela, então tratar o segundo como continuação
+#: apagaria uma inviolável que quem escreveu está vendo.
+_RECUO_DE_SUB_ITEM = 2
+
+
 def _itens_de_lista(corpo: str) -> list[str]:
-    """Itens de lista com ou sem número, cada um com suas linhas de continuação."""
+    """Itens de lista com ou sem número, cada um com suas linhas de continuação.
+
+    Sub-item é continuação do pai, não item de primeira classe. Medido: um sub-item de 2
+    espaços entrava como inviolável e ocupava uma das `max_itens` vagas — duplamente caro,
+    porque rouba a vaga de uma proibição real e reafirma como proibição absoluta um
+    fragmento que, lido fora do item pai, não proíbe nada.
+    """
+    linhas = corpo.splitlines()
+    cercado = _mascara_de_cerca(linhas)
     itens: list[str] = []
     atual: list[str] | None = None
-    for linha in corpo.splitlines():
-        m = re.match(r"^\s{0,3}(?:[-*+]|\d{1,2}[.)])\s+(.*)$", linha)
-        if m:
+    base: int | None = None
+    for k, linha in enumerate(linhas):
+        if cercado[k]:
+            continue
+        m = re.match(r"^(\s*)(?:[-*+]|\d{1,2}[.)])\s+(.*)$", linha)
+        recuo = len(m.group(1)) if m else 0
+        if m and (base is None or recuo < base + _RECUO_DE_SUB_ITEM):
             if atual:
                 itens.append(" ".join(atual))
-            atual = [m.group(1).strip()]
+            if base is None:
+                base = recuo
+            atual = [m.group(2).strip()]
         elif atual is not None:
-            if linha.strip():
-                atual.append(linha.strip())
+            # Sub-item entra sem o marcador: `- ` no meio de uma frase é ruído no que vai
+            # para o contexto, e a regra é a primeira frase do PAI de qualquer forma.
+            texto = m.group(2).strip() if m else linha.strip()
+            if texto:
+                atual.append(texto)
             else:
                 itens.append(" ".join(atual))
                 atual = None

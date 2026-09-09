@@ -2,7 +2,16 @@
 name = "harness-memoria"
 description = "Motor de auditoria e memória de contexto para projetos com ADR e diário de engenharia"
 readme = "README.md"
-requires-python = ">=3.11"
+# >=3.10, não >=3.11: medido nesta máquina com o 3.10.11 instalado — `PYTHONPATH=src
+# python3.10 -m harness_memoria.auditar` aprova um projeto sintético e os seis autotestes
+# (session_start, session_end, reafirmar, guardar, formatar, pre_compact) saem rc=0, porque
+# todo módulo já tem `from __future__ import annotations` e nenhum usa API 3.11+
+# (`datetime.UTC`, `tomllib`, `StrEnum`, `Self`, `except*` — checado com grep, zero
+# ocorrências). O número velho (>=3.11) não vinha de nada medido e bloqueava `uv add` num
+# projeto consumidor em 3.10, que é versão comum de produção (Django/Streamlit), sem
+# ganhar nada em troca. `target-version = "py310"` abaixo tem de acompanhar esta linha,
+# senão as regras UP passam a sugerir sintaxe que a versão mínima declarada não tem.
+requires-python = ">=3.10"
 # Sem `version`: quem consome pin por SHA de commit (git dependency), e o plugin
 # se versiona pelo mesmo SHA. Um número aqui exigiria bump a cada correção para
 # que os consumidores a recebessem — ver `docs` de versionamento de plugin.
@@ -36,7 +45,7 @@ packages = ["src/harness_memoria"]
 # apontamentos era comentário estourando por 1 a 5 caracteres, o que empurra para encurtar
 # a explicação em vez de o código.
 line-length = 100
-target-version = "py311"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

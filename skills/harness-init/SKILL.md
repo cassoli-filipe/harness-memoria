@@ -64,13 +64,10 @@ do `CLAUDE.md`; o contrato é:
 Crie `.claude/harness.json`. Comece **mínimo**: todo campo tem default, e config que repete
 o default é config que mente sobre ter sido pensada. Escreva só o que difere.
 
-```json
-{
-  "projeto": "Nome do projeto",
-  "reafirmacao": { "sub_bloco": "**NUNCA**" },
-  "formatadores": [{ "extensoes": [".py"], "comando": ["ruff", "format", "{arquivo}"] }]
-}
-```
+O exemplar canônico é `${CLAUDE_PLUGIN_ROOT}/template/harness.json` — copie e ajuste os três
+campos que ele já reduz a "costuma diferir do default" (`projeto`, `reafirmacao.sub_bloco`,
+`formatadores`), em vez de reescrever um JSON à mão aqui: dois exemplares de config mínima
+divergem na primeira mudança de default sem nada acusar.
 
 Campos que costumam precisar de valor explícito na migração de projeto existente:
 
@@ -78,12 +75,29 @@ Campos que costumam precisar de valor explícito na migração de projeto existe
 | ------------------------------ | -------------------------------------------------------------- |
 | `adr.secao_plano: null`        | os ADRs existentes não têm `## Plano de Implementação`          |
 | `adr.primeiro_com_regra`       | o número a partir do qual `## Regra` passa a valer (não retrofita) |
+| `adr.primeiro_com_template`    | o número do primeiro ADR NOVO obrigado aos campos e seções de `template.md`; os anteriores não são retrofitados (mesmo raciocínio de `primeiro_com_regra`) |
+| `adr.conformidade_com_template: false` | corpus sem convenção fixa nenhuma — nem `primeiro_com_template` resolve, porque nem o formato-alvo está definido ainda |
 | `diario.injetar_ultima_entrada: false` | outro mecanismo do projeto já injeta a narrativa da sessão anterior |
 | `guardas.caminhos`             | há tipo de arquivo que nunca deve ser versionado neste projeto  |
 | `auditoria.checks_do_projeto`  | há fronteira estrutural própria a verificar                    |
 
+**As duas linhas de ADR só passam a valer depois da Fase 3.** O cheque de conformidade com
+template retorna cedo enquanto `docs/adr/template.md` não existe — é a cópia dele, na Fase 3,
+que liga a exigência. Uma migração com 23 ADRs legados que só aplique `secao_plano: null`
+continua com 23 falhas de conformidade irredutíveis (a única saída — corrigir o corpo de um
+ADR aceito — é proibida pela regra 1 do próprio template); apontando
+`adr.primeiro_com_template` para o número do primeiro ADR NOVO, a auditoria aprova sem
+reescrever história.
+
 **A presença deste arquivo é o gate**: sem ele todo hook do harness é inerte. Criá-lo é o
 ato de adotar.
+
+**A narrativa do `SessionEnd` é opt-in, não um campo desta config.** Por default o hook só
+grava o piso determinístico (fatos, sem LLM, ~421 ms). Para habilitar a narrativa por
+`claude -p`, o consumidor põe `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` (acima de ~21.000)
+no `.claude/settings.json` DELE — não escreva essa variável por default ao instalar: ela
+custa 15–30 s a mais na saída de TODA sessão, e pagar isso é decisão do projeto, não desta
+skill.
 
 ## Fase 3 — O esqueleto do conteúdo
 
@@ -92,7 +106,8 @@ Copie de `${CLAUDE_PLUGIN_ROOT}/template/` o que faltar, **sem sobrescrever**:
 - `docs/adr/README.md` — índice em tabela `| ADR | Título | Status |`
 - `docs/adr/template.md`
 - `docs/diario/README.md` — as regras do diário
-- `docs/diario/AAAA-MM.md` do mês corrente, com o cabeçalho
+- `docs/diario/AAAA-MM.md` — renomeie para o mês corrente (`AAAA-MM.md` do template já é a
+  saída exata de `diario._cabecalho_mes()`; não escreva o cabeçalho à mão)
 
 Se o projeto já tem ADRs sem índice, **gere o índice a partir dos arquivos** — não peça ao
 usuário para escrever 22 linhas de tabela à mão.
@@ -114,31 +129,56 @@ documentação dessincronizou não faz sentido gastar minuto de build.
 
 ```yaml
 - name: Auditar documentação e fronteiras
-  run: python -m harness_memoria.auditar
+  run: uv run python -m harness_memoria.auditar
 ```
 
 Precisa da dependência:
 
 ```bash
-uv add --dev "harness-memoria @ git+ssh://git@github.com/cassoli-filipe/harness-memoria"
+uv add --dev "harness-memoria @ git+https://github.com/cassoli-filipe/harness-memoria"
 ```
+
+`git+https`, não `git+ssh`: um runner de CI recém-configurado não tem chave, e a receita com
+`ssh://` falha com `Permission denied (publickey)` no primeiro `uv sync` — exatamente no
+passo que esta fase acabou de mandar criar. `git+ssh` só faz sentido se o repositório do
+harness virar privado. E é `uv run python -m harness_memoria.auditar`, não `python` nu: `uv
+add --dev` instala dentro do `.venv` do projeto, que o `python` do PATH não enxerga —
+`uv run` (ou `uv run harness-auditar`, o mesmo script que o `pyproject.toml` expõe) resolve
+o interpretador certo sozinho.
 
 Se o projeto **não** tem CI, diga isso ao usuário explicitamente: a auditoria vai rodar só na
 máquina dele, e cheque que não reprova nada é cheque que se aprende a ignorar.
 
 ## Fase 6 — Verificar de verdade
 
+Primeiro, o pré-requisito que os hooks presumem e nada verificava até esta versão da skill —
+os sete registros de `hooks.json` (seis scripts) usam `"command": "python"`, nunca
+`python3`, e em macOS ≥ 12.3 ou Debian/Ubuntu sem `python-is-python3` esse nome simplesmente
+não existe:
+
 ```bash
-python -m harness_memoria.auditar
+command -v python || echo "FALHA: 'python' não resolve no PATH — os hooks do harness ficarão inertes em silêncio. Instale python-is-python3 (Debian/Ubuntu) ou crie o alias (macOS)."
 ```
 
-E os cinco autotestes, apontados para este projeto:
+Depois, a auditoria (via `uv`, pelo mesmo motivo da Fase 5 — o projeto instalou o pacote no
+`.venv`, não no `python` do PATH):
 
 ```bash
-for h in session_start session_end reafirmar guardar formatar; do
+uv run python -m harness_memoria.auditar
+```
+
+E os seis autotestes, apontados para este projeto (rodados com o `python` do PATH direto,
+sem `uv run`: é assim que a plataforma de verdade invoca cada hook, fora do venv):
+
+```bash
+for h in session_start session_end reafirmar guardar formatar pre_compact; do
   python "${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/$h.py" --autoteste --projeto .
 done
 ```
+
+`session_start --autoteste` já confere os DOIS blocos que ele produz — o completo
+(`SessionStart`) e o reduzido (`SubagentStart`) — na mesma chamada; não há autoteste
+separado para `SubagentStart`.
 
 O do `session_start` confere **fidelidade** — que o bloco injetado entrega o que promete. O do
 `reafirmar` imprime as invioláveis extraídas: **leia a lista** e confirme que cada linha é

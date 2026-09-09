@@ -6,3 +6,10 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# `pytest_full.log` ficou na raiz depois de uma rodada de agentes concorrentes que
+# redirecionou a saída da suíte para arquivo e não limpou (achado da verificação de
+# 2026-09). Um `git add -A` do humano o teria comitado — o arquivo já foi apagado, isto é
+# para não repetir: a rodada com 9 agentes que gerou o achado é o modo normal de trabalho
+# deste repositório, não uma exceção.
+*.log

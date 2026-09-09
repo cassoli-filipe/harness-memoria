@@ -19,13 +19,19 @@ de chegar ao contexto de uma sessão futura.** Escreva a lição em imperativo e
 ## Regras
 
 1. **Um arquivo por mês**: `AAAA-MM.md`. Mês corrente nesta pasta; meses fechados em
-   `arquivo/`.
-2. **Teto de 400 linhas por arquivo.** Ao estourar, feche e abra `AAAA-MMb.md`.
+   `arquivo/`. O arquivo do mês novo é uma CÓPIA do template do harness
+   (`AAAA-MM.md` na raiz do template), renomeada — o cabeçalho já vem pronto, não se escreve
+   à mão.
+2. **Teto de 400 linhas por arquivo.** Ao estourar, feche e abra `AAAA-MMb.md`, `AAAA-MMc.md`
+   e assim por diante. No **décimo** arquivo do mês (o nono sufixo de desdobramento) não há
+   próximo sufixo para abrir: mova os mais ANTIGOS do mês para `arquivo/` (o digest de becos
+   continua enxergando lá) ou suba `diario.teto_linhas` no `harness.json`.
 3. **Máximo ~25 linhas por entrada.** Se precisar de mais, o conteúdo é ADR, não diário.
 4. **Append-only, no FIM do arquivo.** Nunca edite entrada passada; corrija com nova entrada
    apontando para a antiga. A **ordem cronológica é obrigatória e auditada**: a reinjeção pega
-   o último bloco `##` do arquivo, então entrada nova no topo faria a próxima sessão receber a
-   mais velha, em silêncio.
+   o último bloco `## AAAA-MM-DD` do arquivo — cabeçalho `## ` sem data não conta como fronteira
+   de entrada — então entrada nova no topo faria a próxima sessão receber a mais velha, em
+   silêncio.
 5. **Datas absolutas.** `2026-08-04`, nunca "ontem" ou "semana passada".
 6. **Sem entrada para sessão sem resultado.** O diário registra mudança de estado, não
    presença.
@@ -55,7 +61,7 @@ de chegar ao contexto de uma sessão futura.** Escreva a lição em imperativo e
 
 ### Tentativas descartadas
 
-- {abordagem} → falhou porque {razão}. **Não repetir.**
+- {abordagem} → falhou porque {razão}. **Não repetir:** {lição em imperativo}
 
 ### Verificação
 
@@ -87,6 +93,7 @@ estava três arquivos atrás:
 
 ```bash
 git mv docs/diario/AAAA-MM*.md docs/diario/arquivo/
-# criar docs/diario/AAAA-MM.md (mês novo) com o cabeçalho
+# copiar o AAAA-MM.md do template do harness para docs/diario/, renomeado para o mês novo
+# (o cabeçalho já vem pronto — é a mesma saída que diario._cabecalho_mes() escreve)
 # atualizar o ponteiro do mês corrente no CLAUDE.md
 ```

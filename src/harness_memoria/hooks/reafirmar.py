@@ -8,8 +8,15 @@ conformidade (OR 0,944) — e nenhuma variável de formato de arquivo tem efeito
 A contramedida é reinjeção; o harness reinjetava só em `SessionStart`, isto é, num evento
 que numa sessão longa acontece uma vez e nunca mais.
 
-Sync de propósito: saída de hook `async` é descartada pelo Claude Code, e esta existe
-justamente para ser lida.
+Registrado `async: true` no `hooks.json`, e a premissa que este docstring afirmava antes
+era FALSA: dizia "saída de hook `async` é descartada pelo Claude Code", e por isso o hook
+era síncrono. Na versão instalada o binário colhe o resultado do hook assíncrono e entrega
+o `additionalContext` no turno seguinte — não descarta nada. O preço é um turno de atraso
+numa mensagem cuja função é combater decaimento ao longo de dezenas de passos; o ganho é
+não bloquear ~145 ms em cada escrita, sendo que 14 de cada 15 execuções não emitem nada
+(~15 s numa sessão de 120 escritas). Não existe uma terceira via: `asyncRewake` dispara
+pelo exit 2, que no runner é caminho de *blocking error* — semântica de bloqueio para o que
+é lembrete.
 
 As regras vêm do `CLAUDE.md` do projeto, extraídas — não copiadas. Ver `config.invioaveis`.
 
@@ -18,22 +25,57 @@ Autoteste:  python src/harness_memoria/hooks/reafirmar.py --autoteste [--projeto
 
 from __future__ import annotations
 
-import json
 import os
-import subprocess
 import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from harness_memoria.config import Config, invioaveis  # noqa: E402
-from harness_memoria.hooks import _comum as C  # noqa: E402
 
 ROTULO = "reafirmar"
 FERRAMENTAS_DE_ESCRITA = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
+#: Erro do bootstrap, se houver. O `from harness_memoria...` ficava FORA do `try/except` que
+#: implementa "nunca derrubar a sessão" — a única linha sem rede. Com um erro de sintaxe no
+#: fim de `config.py` este hook saía com rc=1 e traceback cru no stderr, a cada escrita.
+_ERRO_DE_BOOTSTRAP: str | None = None
+
+#: `_leve`, quando ele importar. Começa em `None` porque ele pode ser o arquivo quebrado —
+#: ver o ramo de desistência em `main`.
+L = None
+
+try:
+    # `os.path`, não `Path(__file__).resolve().parents[2]`: `pathlib` custa 7,2 ms e era o
+    # primeiro import do arquivo, antes de o pré-gate poder desistir.
+    _AQUI = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(_AQUI)))
+
+    from harness_memoria.hooks import _leve as L  # noqa: E402
+
+    # PRÉ-GATE — ver `_leve.gate_barato`. Num projeto sem `.claude/harness.json` este hook
+    # não emite nada, e pagava 85,6 ms de import para descobrir. Medido p25 de n=40 rodadas
+    # intercaladas, cenário sem config: 150,6 → 55,9 ms (piso 44,3). As duas guardas:
+    # `__main__` porque a suíte importa este
+    # módulo (um `sys.exit(0)` em tempo de import mataria a coleta do pytest), e
+    # `--autoteste` porque lá o projeto vem por `--projeto`, não pelo cwd.
+    if __name__ == "__main__" and "--autoteste" not in sys.argv and L.gate_barato() is False:
+        L.sair_sem_fazer_nada()
+
+    import json  # noqa: E402
+    from pathlib import Path  # noqa: E402  — grátis aqui: `config` importa `pathlib`
+
+    from harness_memoria.config import Config, invioaveis  # noqa: E402
+    from harness_memoria.hooks import _comum as C  # noqa: E402
+except Exception as e:  # noqa: BLE001 — pacote inconsistente não derruba a sessão
+    _ERRO_DE_BOOTSTRAP = f"{type(e).__name__}: {e}"
+
 
 def main(argv: list[str] | None = None) -> int:
+    if _ERRO_DE_BOOTSTRAP is not None:
+        aviso = f"[{ROTULO}] pacote não importável, hook inerte: {_ERRO_DE_BOOTSTRAP}"
+        # Quando o arquivo quebrado é o próprio `_leve`, `L` não existe: medido, a mensagem
+        # saía `NameError: name 'L' is not defined` e apontava para este arquivo em vez do
+        # truncado. `sys` é import do topo, fora do `try`.
+        if L is None:
+            print(aviso, file=sys.stderr)
+            return 0
+        L.sair_sem_fazer_nada(aviso)
     argv = list(argv if argv is not None else sys.argv[1:])
     C.preparar(ROTULO)
     if "--autoteste" in argv:
@@ -88,6 +130,9 @@ def montar_mensagem(raiz: Path, cfg: Config, contagem: int) -> str:
 
 def _autoteste(projeto: str) -> int:
     """Simula uma sessão de escritas e confere QUANDO a reafirmação sai."""
+    # `subprocess` só é usado aqui, para re-executar este próprio script. No topo do módulo
+    # ele custava 6,8 ms em CADA escrita da sessão, para nada.
+    import subprocess
     import tempfile
 
     from harness_memoria.config import ErroDeConfig, carregar, raiz_projeto
@@ -103,8 +148,23 @@ def _autoteste(projeto: str) -> int:
         return 0
 
     falhas = 0
-    eu = str(Path(__file__).resolve())
+    eu = os.path.realpath(__file__)
     intervalo = cfg.reafirmacao.intervalo_escritas
+
+    # O filho é o hook DE VERDADE, sem `--autoteste`, então o pré-gate vale para ele. Duas
+    # coisas tinham de mudar aqui por causa disso, e as duas são o mesmo bug: o filho
+    # herdava o ambiente do autoteste em vez de receber o projeto que se pediu para testar.
+    #
+    # * `cwd=raiz` — sem isso o filho herda o cwd do PAI, e rodar
+    #   `reafirmar.py --autoteste --projeto <com-config>` de dentro de um projeto sem
+    #   `harness.json` passava de "todos os casos corretos" para "1 caso(s) com falha · sai
+    #   em [15, 30], saiu em []". A raiz do harness passou a ter `CLAUDE.md` (ADR-0001),
+    #   então este é o caminho que o job `autotestes` exercita de verdade.
+    # * `CLAUDE_PROJECT_DIR` fora do ambiente — ela é o PRIMEIRO candidato de
+    #   `config.raiz_projeto` e do pré-gate, e ganha do `cwd`. Rodar o autoteste de dentro
+    #   de uma sessão do Claude Code fazia o filho auditar o projeto da sessão, não o de
+    #   `--projeto`.
+    ambiente = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
 
     def disparar(ferramenta: str, sessao: str) -> bool:
         entrada = json.dumps(
@@ -122,11 +182,13 @@ def _autoteste(projeto: str) -> int:
             text=True,
             encoding="utf-8",
             errors="replace",
+            cwd=str(raiz),
+            env=ambiente,
         )
         return "additionalContext" in (r.stdout or "")
 
     with tempfile.TemporaryDirectory() as tmp:
-        sessao = "autoteste-" + Path(tmp).name
+        sessao = "autoteste-" + os.path.basename(tmp)
 
         saiu_em = [i for i in range(1, 2 * intervalo + 1) if disparar("Write", sessao)]
         esperado = [intervalo, 2 * intervalo]
