@@ -60,13 +60,18 @@ _ENV_SEM_SEGREDO = frozenset({".env.example", ".env.sample", ".env.template", ".
 #: a desligar a guarda inteira, que é o oposto do que ela existe para fazer.
 _LITERAL = r"'[^']*'|\"[^\"]*\""
 
-#: `--no-verify` no `commit`, incluindo as grafias curtas. `git commit -h` confirma
-#: `-n, --no-verify`, e com a regex antiga (`\bgit\s+(commit|push)\b.*--no-verify`)
-#: passavam `git commit -n -m 'x'` e `git commit -nm 'x'` — o bypass mais curto do teclado,
-#: e o passo obvio seguinte a um commit reprovado por hook. O `[a-z]*` nas duas pontas
-#: cobre o pacote de flags curtas (`-anm`); `-am`, `--amend` e `--no-gpg-sign` não casam,
-#: porque nenhum tem `n` como flag curta solta.
-_NO_VERIFY_COMMIT = r"\bgit\s+commit\b[^&|;]*(?:--no-verify|\s-[a-z]*n[a-z]*(?:\s|$))"
+#: `--no-verify` no `commit`, nas duas grafias. `git commit -h` confirma `-n, --no-verify`,
+#: e com a regex antiga (`\bgit\s+(commit|push)\b.*--no-verify`) passavam
+#: `git commit -n -m 'x'` e `git commit -nm 'x'` — o bypass mais curto do teclado, e o passo
+#: obvio seguinte a um commit reprovado por hook. O `[a-z]*` nas duas pontas do curto cobre
+#: o pacote de flags (`-anm`); `-am`, `--amend` e `--no-gpg-sign` não casam, porque nenhum
+#: tem `n` como flag curta solta.
+#:
+#: DOIS padrões, e não um com alternativa, porque a MENSAGEM difere: a única que existia
+#: dizia `--no-verify` mesmo quando o que casara era `-nm`, mandando o leitor procurar no
+#: comando uma flag que não está lá. Ver `_avaliar_comando`.
+_NO_VERIFY_LONGO = r"\bgit\s+commit\b[^&|;]*--no-verify"
+_NO_VERIFY_CURTO = r"\bgit\s+commit\b[^&|;]*\s-[a-z]*n[a-z]*(?:\s|$)"
 
 #: No `push` só a forma longa: `git push -n` é `--dry-run` e bloqueá-lo seria falso
 #: positivo. O `[^&|;]*` (era `.*`) confina o casamento a um segmento — antes,
@@ -292,15 +297,100 @@ def _sob_prefixo(caminho_baixo: str, prefixo: str) -> bool:
     return f"/{limpo}/" in f"/{caminho_baixo.lstrip('/')}"
 
 
+#: Abertura de heredoc, com ou sem quotes e com ou sem `-`: `<<EOF`, `<<'MSG'`, `<<-"X"`.
+#:
+#: STRING, não `re.compile`, como todos os padrões deste arquivo — e a razão é o invariante,
+#: não o estilo: `re` é importado DENTRO do `try` de bootstrap, então um `re.compile` aqui
+#: roda fora da rede e estoura com `NameError` quando o que quebrou foi o próprio `_leve`.
+#: `test_leve_quebrado_reporta_a_causa_e_nao_a_consequencia` pegou exatamente isso (rc=1 em
+#: vez de 0) na primeira versão deste helper.
+_ABRE_HEREDOC = r"<<-?\s*(?P<q>['\"]?)(?P<marca>[A-Za-z_]\w*)(?P=q)"
+
+
+def _sem_corpo_de_heredoc(comando: str) -> str:
+    """O comando sem os CORPOS de heredoc — eles são dado no stdin, não comando.
+
+    Mesma razão do `_LITERAL`, e o caso que criou isto é o mesmo defeito uma camada
+    adiante: `_avaliar_comando` faz `" ".join(comando.split())`, o que achata o heredoc
+    inteiro numa linha só, então uma mensagem de commit que CITA a flag proibida vira
+    comando aos olhos da regex. Aconteceu de verdade ao commitar a correção anterior deste
+    arquivo: `git commit -F - <<'MSG'` com o texto que explica o bloqueio foi BLOQUEADO, e
+    a mensagem sugeria corrigir a causa de um hook que não estava falhando. Falso positivo
+    em bloqueio empurra para `guardas.universais: false`, que desliga as três guardas.
+
+    Descarta só o CORPO. A linha de abertura fica, e é o que faz `cat > .env <<'X'`
+    continuar bloqueado por `_escrita_de_env_por_shell` — o alvo do redirecionamento está
+    antes do `<<`, não dentro dele.
+
+    Heredoc sem terminador consome até o fim de propósito: nesse caso o shell também
+    trataria as linhas seguintes como corpo, então elas nunca seriam executadas como
+    comando. Descartar é o que corresponde ao que o shell faz.
+
+    O que isto NÃO faz: inspecionar conteúdo. Um projeto que precise proibir texto dentro
+    de heredoc está pedindo cheque de conteúdo, não de comando, e o lugar disso é
+    `guardas.caminhos` sobre o arquivo escrito.
+    """
+    linhas = comando.splitlines()
+    saida: list[str] = []
+    i = 0
+    while i < len(linhas):
+        linha = linhas[i]
+        saida.append(linha)
+        m = re.search(_ABRE_HEREDOC, linha)
+        i += 1
+        if not m:
+            continue
+        marca = m.group("marca")
+        while i < len(linhas) and linhas[i].strip() != marca:
+            i += 1
+        i += 1  # descarta também a linha do terminador
+    return "\n".join(saida)
+
+
+def _um_comando_por_segmento(comando: str) -> str:
+    """Newline vira `;`, porque no shell ela É separador de comando — e as regras contam.
+
+    Todo padrão deste arquivo confina o casamento a um segmento com `[^&|;]*`, justamente
+    para que citar um caminho inocente ao lado do proibido não vire porta. Mas
+    `_avaliar_comando` achatava o comando com `" ".join(split())`, o que transforma newline
+    em ESPAÇO — e aí as linhas de um script viram um segmento só.
+
+    O caso que criou isto, medido: um bloco de três linhas com `git add -A`, `git commit -F
+    <arquivo>` e `git push` foi bloqueado pela guarda de `git add --force`, porque depois do
+    achatamento o `-F` do *commit* caía dentro do `[^&|;]*` do *add* e casava `\\s-(-force|f)`.
+    A mensagem mandava "adicione o caminho explicitamente sem `-f`" para quem não havia
+    escrito `-f` nenhum. É o terceiro falso positivo desta família, e a causa raiz dos dois
+    primeiros: a fronteira de segmento existia no padrão e era destruída antes do casamento.
+
+    `\\` no fim da linha é continuação, não separador: vira espaço, como o shell faz.
+    """
+    return re.sub(r"\\\n", " ", comando).replace("\n", " ; ")
+
+
 def _avaliar_comando(comando: str, g: ConfigGuardas) -> str | None:
-    c = " ".join(comando.split())
+    c = " ".join(_um_comando_por_segmento(_sem_corpo_de_heredoc(comando)).split())
     baixo = c.lower()
 
     if g.universais:
         sem_literais = re.sub(_LITERAL, " ", baixo)
-        if any(re.search(p, sem_literais) for p in (_NO_VERIFY_COMMIT, _NO_VERIFY_PUSH)):
+        # Duas mensagens, e não uma: a única que existia dizia `--no-verify` mesmo quando o
+        # que casara era a flag CURTA, e mandava "corrija a causa" de um hook que podia nem
+        # existir. Quem lê `--no-verify` num comando onde ele não aparece procura a coisa
+        # errada — o mesmo dano de ponteiro velho, na mensagem de bloqueio.
+        if re.search(_NO_VERIFY_LONGO, sem_literais):
             return (
                 "Bloqueado: `--no-verify` pula os hooks de commit. "
+                "Se um hook está falhando, corrija a causa."
+            )
+        if re.search(_NO_VERIFY_CURTO, sem_literais):
+            return (
+                "Bloqueado: `-n` em `git commit` é a forma curta de `--no-verify` e pula os "
+                "hooks de commit (`git commit -h` documenta `-n, --no-verify`). "
+                "Se um hook está falhando, corrija a causa."
+            )
+        if re.search(_NO_VERIFY_PUSH, sem_literais):
+            return (
+                "Bloqueado: `--no-verify` pula os hooks de push. "
                 "Se um hook está falhando, corrija a causa."
             )
         if re.search(r"\bgit\s+add\b[^&|;]*(^|\s)\.env(\.\w+)?(\s|$)", baixo):
