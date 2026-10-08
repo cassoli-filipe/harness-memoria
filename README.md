@@ -33,7 +33,7 @@ primeiro.
 
 ```bash
 # a) pasta local — aponta para este clone, sem autenticação nenhuma
-claude plugin marketplace add C:/Users/casso/projetos/harness-memoria
+claude plugin marketplace add ~/Projects/harness-memoria
 
 # b) GitHub — o que funciona em outra máquina
 claude plugin marketplace add cassoli-filipe/harness-memoria
