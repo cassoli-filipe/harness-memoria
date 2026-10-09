@@ -1,23 +1,19 @@
 # Fundamentos do `harness-memoria`
 
 > Análise do funcionamento, dos fundamentos e dos princípios de projeto deste repositório.
-> Escrita a partir da leitura integral do código (5.638 linhas de `src/`, 364 casos de
-> teste, sobre os mesmos 14 commits — o crescimento é trabalho ainda não commitado de uma
-> passada de otimização orientada por diagnóstico), não a partir do README.
+> Escrita em 2026-09-08 a partir da leitura integral do código (então 5.638 linhas de
+> `src/` e 364 casos de teste), não a partir do README.
 >
-> Este arquivo é versionado de propósito (decisão deste commit: ficar, não apagar) e deve
-> ser tratado como fonte OPERACIONAL do próprio repositório — isto é, entrar em
-> `ConfigAuditoria.fontes_operacionais` (`src/harness_memoria/config.py`) junto com o
-> `README.md`, para que referência a ADR morto ou script renomeado aqui também reprove a
-> auditoria. Sem essa linha, este é o maior documento do repositório sem régua nenhuma — o
-> próprio defeito que ele existe para descrever em outros arquivos. O README é o guia de
-> uso; este arquivo é a leitura para quem vai mexer no mecanismo.
+> Este arquivo é fonte OPERACIONAL do repositório: está em
+> `auditoria.fontes_operacionais_extras` do `.claude/harness.json`, então referência a ADR
+> morto ou script inexistente aqui reprova a auditoria (as `skills/*/SKILL.md` do plugin
+> entraram no default pelo mesmo motivo). O README é o guia de uso; este arquivo é a leitura
+> para quem vai mexer no mecanismo.
 >
-> Nota de carona para quem for mexer em `fontes_operacionais`: o default hoje varre
-> `.claude/skills/*/SKILL.md` (a convenção do PROJETO CONSUMIDOR), não `skills/*/SKILL.md`
-> (onde vivem as quatro skills DESTE plugin). Sem o segundo padrão, as próprias
-> `skills/*/SKILL.md` do repositório continuam fora de todo cheque de ponteiro velho mesmo
-> depois desta auto-hospedagem — acrescente-o junto com `FUNDAMENTOS.md`.
+> Regra de escrita: número que muda a cada commit (linhas, casos de teste) só aparece com a
+> data da medição; referência a código é por NOME de símbolo, não por `arquivo.py:linha`, que
+> envelhece na primeira edição acima dela. Decisões que este texto descreve e que têm ADR
+> apontam para o ADR — ele é a fonte, este arquivo é a explicação.
 
 ---
 
@@ -116,6 +112,8 @@ as outras duas só a protegem.
 
 ## 4. Mapa do código
 
+Contagens de linha medidas em 2026-09-08 — ordem de grandeza, não inventário.
+
 ```
 src/harness_memoria/
 ├── config.py     (658)  política como dado + o gate + extração das invioláveis
@@ -136,7 +134,7 @@ src/harness_memoria/
 Fora de `src/`: `hooks/hooks.json` (registro dos hooks no plugin — 6 scripts, 7 registros:
 `session_start.py` atende `SessionStart` e `SubagentStart`), `skills/` (4 skills),
 `template/` (esqueleto de `docs/` + `harness.json` mínimo), `.github/workflows/ci.yml`
-(3 jobs) e `tests/` (364 casos).
+(3 jobs) e `tests/` (364 casos em 2026-09-08).
 
 **Zero dependências em runtime, e isso é requisito, não economia.** Os hooks rodam com o
 `python` do `PATH`, fora do venv do projeto consumidor. Qualquer import de terceiro
@@ -234,7 +232,7 @@ Quatro detalhes de engenharia que merecem nota:
 ### 6.1 O gate — e sua assimetria deliberada
 
 **Todo hook é inerte num projeto sem `.claude/harness.json`.** O gate não está no
-`hooks.json`; está em `config.carregar()`, que devolve `None` (`src/harness_memoria/config.py:265`).
+`hooks.json`; está em `config.carregar()`, que devolve `None` (`config.carregar`).
 É isso que permite habilitar o plugin no nível do **usuário** sem que ele crie `docs/diario/`
 em todo repositório aberto, e sem que a política de um projeto vaze para dentro de outro.
 
@@ -262,7 +260,7 @@ O modo de falha mais perigoso desse desenho é o próprio gate sumir de um check
 o que aconteceu na primeira instalação real (o `.gitignore` do consumidor era `.claude/*`
 com exceções nomeadas uma a uma, e `harness.json` não estava entre elas): em disco o arquivo
 existia, a auditoria passava, e no runner do CI os seis hooks ficariam silenciosamente
-inertes. `auditar_config_versionada` (`src/harness_memoria/auditar/__init__.py:663`) roda
+inertes. `auditar_config_versionada` (em `auditar/__init__.py`) roda
 `git check-ignore` para fechar exatamente esse buraco.
 
 Um segundo modo de falha, do mesmo formato mas fora do JSON: os hooks só rodam se o nome
@@ -289,7 +287,7 @@ Contrato único, e é uma convenção de **escrita**, verificável por máquina:
   └───────────────── vira a reafirmação ─────────────────┘ └── fica só no CLAUDE.md
 ```
 
-Refinamentos, cada um vindo de um caso real (`src/harness_memoria/config.py:503`):
+Refinamentos, cada um vindo de um caso real (`config.invioaveis` e `config._primeira_frase`):
 
 - **negrito inicial ganha da primeira frase** (forma numerada: `1. **Nunca escreva no
   Pipedrive.** Detalhe…`), desde que tenha mais de 12 caracteres;
@@ -475,8 +473,9 @@ partir dele. A justificativa registrada: um aviso pendente por semanas foi o que
 ponteiro do `CLAUDE.md` apontando para um arquivo cujo head já estava três arquivos atrás.
 
 **6. Falso positivo é pior que cheque ausente — ele ensina a ignorar o auditor.**
-Registrado em `_SCRIPT_CITADO`, depois que `python apps/web/scripts/gen-pwa-icons.py`
-reprovou porque o `\b` descartava o prefixo do diretório. O commit `1c61df3` existe só para
+Registrado em `_SCRIPT_CITADO`, depois que a citação de um script de consumidor sob
+`apps/web/scripts/` (o gerador de ícones do PWA) reprovou porque o `\b` descartava o prefixo
+do diretório. O commit `1c61df3` existe só para
 isso.
 
 **7. Config que mente reprova.**
@@ -496,7 +495,8 @@ que governa os projetos?". Antes de criar uma camada global, foi **medido** quan
 projetos configurados de fato repetiam: de ~13 campos, **um** era idêntico. Uma camada global
 para um campo e meio custaria "de onde vem esse valor" ganhar três fontes — e política de
 fora do projeto voltaria a poder agir dentro dele, que é o vazamento exato que o gate fecha.
-Solução: `checks_do_projeto` é **descoberto** em `scripts/guardas_do_projeto.py` quando não
+Solução: `checks_do_projeto` é **descoberto** no caminho convencional
+(`config.CAMINHO_CONVENCIONAL_CHECKS`, o `guardas_do_projeto` sob `scripts/`) quando não
 declarado, e `rodape` ganhou default. A distinção fina: *descoberto-e-ausente é silêncio;
 declarado-e-ausente reprova*, porque aí alguém escreveu o caminho e o cheque não rodou.
 
@@ -679,8 +679,8 @@ repositório real passa a falhar quando aquele repositório muda por razões que
 com o harness — e a suíte que falha por motivo alheio é a suíte que se aprende a ignorar."*
 Mesmo raciocínio do princípio 6.
 
-Estado atual verificado nesta análise: **364 casos de teste passando**, contra os 89 da
-versão anterior desta análise — o crescimento é majoritariamente cobertura nova dos seis
+Estado verificado em 2026-09-08: **364 casos de teste passando**, contra os 89 da versão
+anterior desta análise — o crescimento é majoritariamente cobertura nova dos seis
 hooks e do caminho de escrita do diário, não funcionalidade nova.
 
 ---
@@ -782,7 +782,7 @@ que garante que ele não aja em nenhum que não pediu.
 O repositório vale menos pelo código que pelos critérios de decisão embutidos nele. Os
 comentários não explicam o que o código faz; carregam a medição, o incidente e a alternativa
 rejeitada que produziram cada escolha. Um leitor que só quisesse os princípios poderia ignorar
-as 5.638 linhas e ler apenas os docstrings — e ainda assim sairia com o essencial.
+o corpo das funções e ler apenas os docstrings — e ainda assim sairia com o essencial.
 
 Desde `docs/adr/0001-auto-hospedagem.md`, o repositório aplica essa régua a si mesmo: tem
 `CLAUDE.md` com invioláveis, `.claude/harness.json`, `docs/adr/` e `docs/diario/` — a
