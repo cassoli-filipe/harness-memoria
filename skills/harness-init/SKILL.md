@@ -130,6 +130,13 @@ ou o arquivo que o ADR de fato cita, e deixe numa linha de pasta larga só a reg
 todo arquivo dela. Com o corpus migrado, rode a auditoria com `--propor-mapa`: ela imprime um
 rascunho a partir dos caminhos que cada ADR cita e separa o que precisa de julgamento.
 
+**Mapa grande vai para arquivo próprio (ADR-0010).** O `CLAUDE.md` tem teto de 150 linhas
+porque é carregado em toda sessão, e um mapa fino passa disso fácil. Ponha a tabela em
+`docs/adr/mapa-por-caminho.md` e deixe no `CLAUDE.md` a seção com uma linha apontando para ele
+(link markdown ou caminho entre crases). Hook, auditoria e `--propor-mapa` seguem o ponteiro.
+Num projeto cujo CI usa o pacote do harness, atualize o pacote junto: o anterior ao ADR-0010
+vê a seção sem tabela e reprova.
+
 ## Fase 5 — Ligar o CI
 
 Se o projeto tem CI, adicione o passo da auditoria **primeiro** no workflow: é barato, e se a

@@ -1,6 +1,7 @@
 ---
 status: implemented
 data: 2026-10-09
+emendado-por: [ADR-0010]
 ---
 
 # ADR-0009 — Injetar no PreToolUse de escrita os ADRs que o mapa por caminho aponta

@@ -84,6 +84,9 @@ cobre uma pasta grande com mais de 10 ADRs entrega regras sem relação com o ar
 pedaços, e a auditoria avisa. `uv run python -m harness_memoria.auditar --propor-mapa` divide
 cada linha assim pelas pastas e arquivos que os ADRs citam e lista à parte o que precisa de
 julgamento. Não escreve nada: o mapa é política do projeto.
+O mapa pode morar em arquivo próprio (`docs/adr/mapa-por-caminho.md`), com a seção do
+`CLAUDE.md` apontando para ele — o `CLAUDE.md` tem teto de linhas porque é carregado em toda
+sessão (ADR-0010).
 
 ## Editar o harness
 
