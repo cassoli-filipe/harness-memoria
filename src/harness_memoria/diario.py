@@ -701,20 +701,95 @@ def _resumir_beco(item: str, teto: int) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _achar_tool_uses(no, saida: list[dict]) -> None:
+def _achar_tool_uses(no, saida: list[dict], erros: list[dict] | None = None) -> None:
     """Varre recursivamente qualquer estrutura procurando blocos de uso de ferramenta.
 
     O formato do transcript é interno e pode mudar entre versões do Claude Code: a
-    varredura recursiva é deliberadamente agnóstica ao aninhamento.
+    varredura recursiva é deliberadamente agnóstica ao aninhamento. Com `erros`, a mesma
+    passada recolhe os `tool_result` com `is_error` — duas varreduras do mesmo JSONL num
+    hook de 1.500 ms de orçamento seriam pagar duas vezes pelo mesmo arquivo.
     """
     if isinstance(no, dict):
-        if no.get("type") == "tool_use" and isinstance(no.get("name"), str):
-            saida.append({"nome": no["name"], "entrada": no.get("input") or {}})
+        tipo = no.get("type")
+        if tipo == "tool_use" and isinstance(no.get("name"), str):
+            saida.append({"nome": no["name"], "entrada": no.get("input") or {}, "id": no.get("id")})
+        elif tipo == "tool_result" and erros is not None and no.get("is_error") is True:
+            erros.append({"id": no.get("tool_use_id"), "texto": _texto_do_resultado(no)})
         for v in no.values():
-            _achar_tool_uses(v, saida)
+            _achar_tool_uses(v, saida, erros)
     elif isinstance(no, list):
         for v in no:
-            _achar_tool_uses(v, saida)
+            _achar_tool_uses(v, saida, erros)
+
+
+def _texto_do_resultado(bloco: dict) -> str:
+    conteudo = bloco.get("content")
+    if isinstance(conteudo, list):
+        conteudo = " ".join(
+            b.get("text", "") for b in conteudo if isinstance(b, dict) and b.get("type") == "text"
+        )
+    return conteudo.strip()[:400] if isinstance(conteudo, str) else ""
+
+
+#: Quantas falhas o piso lista. Oito porque a seção concorre com "O que foi feito" pela
+#: mesma entrada de ~25 linhas, e porque a CONTAGEM ("…e mais N") já é o sinal útil numa
+#: sessão que falhou muito — a lista inteira está no transcript.
+MAX_FALHAS_NO_PISO = 8
+
+_EXIT_CODE = re.compile(r"^Exit code (\d+)")
+_NEGADO_POR_HOOK = re.compile(r"^PreToolUse:\w+ hook error:\s*")
+_NEGADO_POR_PERMISSAO = "Permission for this action was denied"
+
+#: Comandos para os quais `exit 1` quer dizer "falso", não "falhou": `grep` sem casamento,
+#: `diff` com diferença, `test` com condição falsa. Medido nos transcripts desta máquina:
+#: a maior parte dos `Exit code 1` de Bash eram buscas sem resultado — listá-los no diário
+#: como falha seria ruído com cara de evidência. Olha o ÚLTIMO segmento de uma cadeia ou
+#: pipeline, que é o que define o código de saída sem `pipefail`.
+_EXIT1_NAO_E_FALHA = frozenset({"grep", "egrep", "fgrep", "rg", "diff", "cmp", "test", "["})
+
+
+def _classificar_falha(uso: dict, texto: str) -> dict | None:
+    """`{tipo, alvo, detalhe}` de um resultado com erro, ou `None` quando é ruído.
+
+    Só a primeira linha do comando e o código de saída — NUNCA a saída. O diário é
+    versionado, e a saída de um comando é o lugar mais provável de um segredo aparecer.
+    O motivo de uma guarda entra porque é texto de política, escrito pelo hook, não saída.
+    """
+    nome = uso.get("nome", "")
+    entrada = uso.get("entrada") if isinstance(uso.get("entrada"), dict) else {}
+    alvo = entrada.get("command") or entrada.get("file_path") or entrada.get("notebook_path")
+    alvo = alvo.strip().splitlines()[0][:160] if isinstance(alvo, str) and alvo.strip() else nome
+
+    if m := _NEGADO_POR_HOOK.match(texto):
+        motivo = texto[m.end() :].split("\n")[0]
+        return {"tipo": "guarda", "alvo": alvo, "detalhe": motivo[:120]}
+    if texto.startswith(_NEGADO_POR_PERMISSAO):
+        return {"tipo": "permissao", "alvo": alvo, "detalhe": ""}
+    if nome in ("Bash", "PowerShell") and (m := _EXIT_CODE.match(texto)):
+        codigo = int(m.group(1))
+        ultimo = re.split(r"&&|\|\||[;|]", alvo)[-1].split()
+        if codigo == 1 and ultimo and ultimo[0] in _EXIT1_NAO_E_FALHA:
+            return None
+        return {"tipo": "comando", "alvo": alvo, "detalhe": f"exit {codigo}"}
+    return None
+
+
+def linhas_de_falhas(falhas: list[dict]) -> list[str]:
+    """Itens prontos para o piso: deduplicados com ×N, na ordem em que apareceram."""
+    contagem: dict[tuple[str, str, str], int] = {}
+    for f in falhas:
+        chave = (f["tipo"], f["alvo"], f["detalhe"])
+        contagem[chave] = contagem.get(chave, 0) + 1
+    linhas = []
+    for (tipo, alvo, detalhe), n in contagem.items():
+        vezes = f" (×{n})" if n > 1 else ""
+        if tipo == "comando":
+            linhas.append(f"- comando `{alvo}` saiu com {detalhe}{vezes}")
+        elif tipo == "guarda":
+            linhas.append(f"- guarda negou `{alvo}`: {detalhe}{vezes}")
+        else:
+            linhas.append(f"- permissão negada: `{alvo}`{vezes}")
+    return [x[:200] for x in linhas]
 
 
 def fatos_do_transcript(caminho: str | None) -> dict:
@@ -727,6 +802,7 @@ def fatos_do_transcript(caminho: str | None) -> dict:
         "primeiro_pedido": "",
         "excerto": "",
         "erro_parse": None,
+        "falhas": [],
     }
     if not caminho:
         fatos["erro_parse"] = "transcript_path ausente"
@@ -738,6 +814,8 @@ def fatos_do_transcript(caminho: str | None) -> dict:
 
     textos: list[str] = []
     vistos: set[str] = set()
+    usos_por_id: dict[str, dict] = {}
+    erros: list[dict] = []
     try:
         with p.open(encoding="utf-8", errors="replace") as f:
             for linha in f:
@@ -750,8 +828,10 @@ def fatos_do_transcript(caminho: str | None) -> dict:
                     continue
 
                 usos: list[dict] = []
-                _achar_tool_uses(obj, usos)
+                _achar_tool_uses(obj, usos, erros)
                 for uso in usos:
+                    if isinstance(uso.get("id"), str):
+                        usos_por_id[uso["id"]] = uso
                     nome = uso["nome"]
                     fatos["ferramentas"][nome] = fatos["ferramentas"].get(nome, 0) + 1
                     entrada = uso["entrada"]
@@ -778,6 +858,16 @@ def fatos_do_transcript(caminho: str | None) -> dict:
     except OSError as e:
         fatos["erro_parse"] = f"falha ao ler transcript: {e}"
         return fatos
+
+    pareados: set[str] = set()
+    for erro in erros:
+        uso = usos_por_id.get(erro["id"])
+        if uso is None or erro["id"] in pareados:
+            continue
+        pareados.add(erro["id"])
+        falha = _classificar_falha(uso, erro["texto"])
+        if falha:
+            fatos["falhas"].append(falha)
 
     junto = "\n".join(textos)
     if len(junto) > LIMITE_TRANSCRIPT_CHARS:
@@ -880,6 +970,16 @@ def entrada_deterministica(
             linhas.append(f"- `{c}`")
         if len(fatos["comandos"]) > 12:
             linhas.append(f"- …e {len(fatos['comandos']) - 12} outro(s)")
+
+    falhas = linhas_de_falhas(fatos.get("falhas") or [])
+    if falhas:
+        linhas += ["", "### Falhas observadas (fatos extraídos)", *falhas[:MAX_FALHAS_NO_PISO]]
+        if len(falhas) > MAX_FALHAS_NO_PISO:
+            linhas.append(f"- …e mais {len(falhas) - MAX_FALHAS_NO_PISO}")
+        linhas.append(
+            "> Fatos, não becos: viram `### Tentativas descartadas` só quando alguém narra o "
+            "porquê (`/encerrar-sessao`)."
+        )
 
     linhas += [
         "",

@@ -68,8 +68,13 @@ class ConfigDiario:
     #: Ordem de descarte quando a entrada não cabe no limite de injeção: a PRIMEIRA da
     #: tupla é a última a sair. O default põe "O que foi feito" para sair primeiro porque
     #: é a única seção reconstruível do `git log`.
+    #:
+    #: "Falhas observadas" logo depois dos becos: é a seção do PISO automático que mais se
+    #: parece com um beco (o comando que falhou, a escrita que a guarda negou), e é o único
+    #: rastro disso numa sessão que ninguém narrou.
     prioridade_secoes: tuple[str, ...] = (
         "Tentativas descartadas",
+        "Falhas observadas",
         "Aberto / Próximo passo",
         "Retomar com",
         "Como (o não-óbvio)",

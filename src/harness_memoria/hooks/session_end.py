@@ -670,6 +670,7 @@ def _limpar_cercas(texto: str) -> str:
 def _montar_prompt(raiz: Path, cfg: Config, fatos: dict, git: dict, agora: datetime) -> str:
     escritos = "\n".join(f"- {a}" for a in fatos["arquivos_escritos"][:60]) or "- (nenhum)"
     comandos = "\n".join(f"- {c}" for c in fatos["comandos"][:30]) or "- (nenhum)"
+    falhas = "\n".join(diario.linhas_de_falhas(fatos.get("falhas") or [])[:20]) or "- (nenhuma)"
     ids = ", ".join(adrs_tocados(fatos["arquivos_escritos"], cfg.pasta_adr, raiz)) or "—"
     proibicoes = (
         "\nNUNCA inclua, também: " + "; ".join(cfg.diario.proibicoes) + "."
@@ -691,6 +692,7 @@ def _montar_prompt(raiz: Path, cfg: Config, fatos: dict, git: dict, agora: datet
         + f"ADRs tocados: {ids}\n"
         + f"Turnos do usuário: {fatos['turnos_usuario']}\n\n"
         + f"Arquivos escritos:\n{escritos}\n\nComandos executados:\n{comandos}\n\n"
+        + f"Falhas observadas:\n{falhas}\n\n"
         + f"git diff --stat:\n{git['diffstat'] or '(vazio)'}\n\n"
         + f"git status --porcelain:\n{git['status'] or '(limpo)'}\n\n"
         + "=== PEDIDO ORIGINAL DO USUÁRIO ===\n"
