@@ -44,7 +44,10 @@ def _automatica(raiz: Path, dia: int, hora: str = "22:06", escritos: int = 0) ->
 
 def _anexar(raiz: Path, *blocos: str) -> None:
     arq = raiz / "docs" / "diario" / f"{MES}.md"
-    arq.write_text(arq.read_text(encoding="utf-8") + "".join(f"\n{b}\n" for b in blocos))
+    novo = arq.read_text(encoding="utf-8") + "".join(f"\n{b}\n" for b in blocos)
+    # `encoding` explícito: sem ele o Windows grava em cp1252 e engasga na seta `→` do
+    # fixture — reprovou a matriz Windows do CI na primeira rodada deste arquivo.
+    arq.write_text(novo, encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
