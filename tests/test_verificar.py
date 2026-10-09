@@ -119,11 +119,15 @@ def test_janela_soma_o_que_o_git_viu_mudar_depois_do_inicio(tmp_path: Path):
     velho.write_text("a\n", encoding="utf-8")
     os.utime(velho, (time.time() - 3600, time.time() - 3600))
     (raiz / "via_bash.py").write_text("b\n", encoding="utf-8")
+    # Nome acentuado: no Windows a saída do git vinha decodificada em cp1252 e o caminho
+    # chegava corrompido ao sensor.
+    (raiz / "ação.py").write_text("c\n", encoding="utf-8")
     agora = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60))
     t = _transcript(tmp_path, [_prompt("gere o código", agora)])
     escritos, _ = sensores.arquivos_do_turno(str(t), raiz)
     nomes = [Path(e).name for e in escritos]
     assert "via_bash.py" in nomes
+    assert "ação.py" in nomes
     assert "velho.py" not in nomes
 
 
@@ -180,6 +184,8 @@ def _rodar(
         input=json.dumps(evento),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=raiz,
         env=env,
         timeout=60,
@@ -329,6 +335,8 @@ def test_autoteste_confere_os_executaveis(projeto: Path, tmp_path: Path):
         [sys.executable, str(HOOK), "--autoteste", "--projeto", str(projeto)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert ok.returncode == 0, ok.stdout + ok.stderr
     _config(projeto, {"nome": "testes", "comando": ["nao-existe-harness-xyz"]})
@@ -336,6 +344,8 @@ def test_autoteste_confere_os_executaveis(projeto: Path, tmp_path: Path):
         [sys.executable, str(HOOK), "--autoteste", "--projeto", str(projeto)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert falha.returncode == 1 and "nao-existe-harness-xyz" in falha.stdout
 
@@ -387,6 +397,8 @@ def test_piso_do_session_end_lista_o_sensor_vermelho(projeto: Path, tmp_path: Pa
         input=json.dumps(evento),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=projeto,
         env=env,
         timeout=60,

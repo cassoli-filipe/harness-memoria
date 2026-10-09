@@ -144,18 +144,26 @@ def _epoch(carimbo) -> float | None:
 
 
 def _sujos_desde(raiz: Path, desde: float) -> list[str]:
-    """Arquivos que o git vê modificados ou novos, com mtime a partir de `desde`."""
+    """Arquivos que o git vê modificados ou novos, com mtime a partir de `desde`.
+
+    `encoding="utf-8"` explícito: o git escreve caminhos em UTF-8, e no Windows `text=True`
+    decodificaria em cp1252 — um arquivo acentuado chegaria ao sensor com o nome errado.
+    """
     try:
         topo = subprocess.run(
             ["git", "-C", str(raiz), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         status = subprocess.run(
             ["git", "-C", str(raiz), "status", "--porcelain", "-z", "-uall"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
