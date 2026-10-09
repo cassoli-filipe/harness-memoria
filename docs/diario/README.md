@@ -92,10 +92,17 @@ sai primeiro porque é a única reconstruível do `git log`.
 
 No dia 1 de cada mês. A partir do dia 3 a auditoria **reprova o build** — aviso pendente por
 semanas foi o que deixou o ponteiro do CLAUDE.md apontando para um arquivo cujo head já
-estava três arquivos atrás:
+estava três arquivos atrás. Mês fechado esquecido no topo desta pasta também conta como
+rotação pendente, mesmo que o arquivo do mês novo já exista.
+
+A rotação é mecânica, e a auditoria a faz:
 
 ```bash
-git mv docs/diario/AAAA-MM*.md docs/diario/arquivo/
-# criar docs/diario/AAAA-MM.md (mês novo) com o cabeçalho
-# atualizar o ponteiro do mês corrente no CLAUDE.md
+PYTHONPATH=src python -m harness_memoria.auditar --projeto . --corrigir
 ```
+
+Move o(s) arquivo(s) do mês fechado para `arquivo/` (`git mv` quando rastreado), cria o do
+mês novo com o cabeçalho e troca o ponteiro do CLAUDE.md (ponteiro com âncora `#…` cita uma
+entrada e vai para `arquivo/`). Não faz `git add` nem commit, e não resolve o que exige
+julgamento: destino que já existe em `arquivo/` ou CLAUDE.md sem ponteiro nenhum ficam na
+lista de falhas para alguém decidir.

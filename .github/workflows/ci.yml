@@ -42,10 +42,11 @@ jobs:
       # `diario.dia_limite_rotacao` (default 3) de cada mês: `auditar_diario` acusa
       # "docs/diario/AAAA-MM.md não existe" e `auditar_claude_md` acusa o ponteiro do mês
       # defasado, os dois ao mesmo tempo. Se o CI vermelhar aqui num PR de início de mês,
-      # a manutenção é a rotação, não um bisect: `git mv docs/diario/AAAA-MM-anterior.md
-      # docs/diario/arquivo/`, criar `docs/diario/AAAA-MM-atual.md` a partir de
-      # `template/docs/diario/AAAA-MM.md`, e mover o ponteiro do `CLAUDE.md` para o arquivo
-      # novo.
+      # a manutenção é a rotação, não um bisect, e ela é mecânica: rode localmente
+      # `PYTHONPATH=src python -m harness_memoria.auditar --projeto . --corrigir` e commite
+      # o que ele mover/criar. Este passo NÃO roda `--corrigir` de propósito — o CI é a rede
+      # que pega quem esqueceu; consertar aqui esconderia o esquecimento num commit que
+      # ninguém revisa.
       - name: Auditoria do próprio repositório (ADR-0001)
         run: uv run python -m harness_memoria.auditar --projeto .
         env:

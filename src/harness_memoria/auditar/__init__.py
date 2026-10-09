@@ -16,7 +16,7 @@ Contrato de um módulo de checks do projeto::
             ctx.falhar("service_role vazou para o browser")
         ctx.avisar("isto não reprova o build")
 
-Uso:  python -m harness_memoria.auditar [--projeto CAMINHO] [--silencioso]
+Uso:  python -m harness_memoria.auditar [--projeto CAMINHO] [--silencioso] [--corrigir]
 """
 
 from __future__ import annotations
@@ -44,7 +44,13 @@ from ..config import (
     caminho_config,
     invioaveis,
 )
-from ..diario import SECAO_BECOS, arquivos_do_diario, remediacao_do_teto
+from ..diario import (
+    SECAO_BECOS,
+    PlanoDeRotacao,
+    arquivos_do_diario,
+    planejar_rotacao,
+    remediacao_do_teto,
+)
 
 #: Uma citação a ADR morto é legítima quando a vizinhança diz que houve substituição.
 #: É o que separa "siga a ADR-0007" de "a ADR-0023 substituiu a ADR-0007".
@@ -65,7 +71,13 @@ class Contexto:
     cfg: Config
     falhas: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
+    #: A data que os cheques de calendário usam. Campo, e não `datetime.now()` dentro de
+    #: cada cheque, porque a rotação reprova a partir de um DIA do mês: sem poder fixar a
+    #: data, nenhum teste exercitava o lado da falha — e a rotação foi justamente o cheque
+    #: que deixou o CI deste repositório vermelho por um mês inteiro sem teste nenhum dela.
+    hoje: datetime = field(default_factory=datetime.now)
     _adrs: dict | None = None
+    _plano: PlanoDeRotacao | None = None
 
     def falhar(self, msg: str) -> None:
         self.falhas.append(msg)
@@ -79,6 +91,13 @@ class Contexto:
         if self._adrs is None:
             self._adrs = dados_dos_adrs(self.cfg.pasta_adr)
         return self._adrs
+
+    @property
+    def plano_de_rotacao(self) -> PlanoDeRotacao:
+        """Um plano por execução, o MESMO para `auditar_diario` e `auditar_claude_md`."""
+        if self._plano is None:
+            self._plano = planejar_rotacao(self.raiz, self.cfg.diario, self.hoje)
+        return self._plano
 
     def rel(self, p: Path) -> str:
         try:
@@ -569,28 +588,44 @@ def auditar_mapa_de_adr_por_caminho(ctx: Contexto) -> None:
 # --------------------------------------------------------------------------- #
 
 
+#: Uma frase, um lugar — a mesma para as duas falhas que a rotação produz (mês novo ausente
+#: e ponteiro do CLAUDE.md defasado), que aparecem SEMPRE juntas. Antes a receita manual
+#: (`git mv`, criar o arquivo, trocar o ponteiro) vivia aqui e na skill `/auditar-docs`, e
+#: um passo mecânico de três etapas ficou um mês inteiro deixando o CI vermelho.
+_REMEDIO_ROTACAO = (
+    "Rode a auditoria com `--corrigir`: ela faz a parte mecânica (mover, criar, trocar o "
+    "ponteiro) e não toca em mais nada"
+)
+
+
 def auditar_diario(ctx: Contexto) -> None:
     pasta = ctx.cfg.pasta_diario
     if not pasta.exists():
         ctx.falhar(f"{ctx.cfg.diario.pasta}/ não existe")
         return
 
-    hoje = datetime.now()
+    hoje = ctx.hoje
     mes = hoje.strftime("%Y-%m")
     dia_limite = ctx.cfg.diario.dia_limite_rotacao
     candidatos = sorted(pasta.glob(f"{mes}*.md"))
-    if not candidatos:
+    plano = ctx.plano_de_rotacao
+    if plano.pendente:
         # Aviso pendente por semanas foi o que deixou o ponteiro do CLAUDE.md apontando
         # para um arquivo cujo head já estava três arquivos atrás. A partir do dia limite,
         # reprova.
+        #
+        # Mês fechado esquecido no TOPO também é rotação pendente, não só o mês novo
+        # ausente: o `anexar_entrada` do SessionEnd CRIA o arquivo do mês na primeira
+        # entrada, e antes deste cheque olhar o plano isso bastava para a auditoria passar
+        # com setembro inteiro ainda fora de `arquivo/` e o ponteiro do CLAUDE.md velho.
         nivel = ctx.falhar if hoje.day >= dia_limite else ctx.avisar
-        nivel(
-            f"{ctx.cfg.diario.pasta}/{mes}.md não existe — rotação pendente. "
-            f"`git mv {ctx.cfg.diario.pasta}/AAAA-MM*.md {ctx.cfg.diario.pasta}/arquivo/`, "
-            f"crie `{ctx.cfg.diario.pasta}/{mes}.md` com o cabeçalho e atualize o ponteiro "
-            f"do CLAUDE.md"
+        o_que = (
+            f"{ctx.cfg.diario.pasta}/{mes}.md não existe"
+            if plano.criar
+            else f"{ctx.cfg.diario.pasta}/ ainda tem mês fechado no topo"
         )
-    else:
+        nivel(f"{o_que} — rotação pendente: {plano.descrever()}. {_REMEDIO_ROTACAO}")
+    if candidatos:
         for arq in candidatos:
             texto = arq.read_text(encoding="utf-8")
             n = len(texto.splitlines())
@@ -701,17 +736,15 @@ def auditar_claude_md(ctx: Contexto) -> None:
     # Vale igual para o ponteiro do mês: exemplo dentro de cerca não é ponteiro.
     texto_util = _fora_de_cerca(texto)
 
-    hoje = datetime.now()
+    hoje = ctx.hoje
     mes = hoje.strftime("%Y-%m")
     ponteiro = f"{ctx.cfg.diario.pasta}/{mes}.md"
     if ponteiro not in texto_util:
         # Ponteiro defasado não é cosmético: aponta para arquivo cujo head ficou atrás, e o
         # agente que segue o ponteiro em vez da injeção perde o mês inteiro.
         nivel = ctx.falhar if hoje.day >= ctx.cfg.diario.dia_limite_rotacao else ctx.avisar
-        nivel(
-            f"CLAUDE.md não aponta para o diário do mês corrente (`{ponteiro}`) — "
-            f"atualize o ponteiro"
-        )
+        remedio = _REMEDIO_ROTACAO if ctx.plano_de_rotacao.ponteiros else "atualize o ponteiro"
+        nivel(f"CLAUDE.md não aponta para o diário do mês corrente (`{ponteiro}`) — {remedio}")
 
     for alvo in re.findall(r"\]\(((?!https?://|#|mailto:)[^)]+)\)", texto_util):
         # `[texto](caminho "Título")` é sintaxe válida de markdown e o título NÃO faz parte

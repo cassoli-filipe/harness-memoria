@@ -66,6 +66,18 @@ Dois canais porque `${CLAUDE_PLUGIN_ROOT}` é efêmero e muda a cada atualizaç�
 o CI não pode depender dele. É o mesmo código, consumido de duas formas — não são duas
 implementações.
 
+**`--corrigir` faz a parte mecânica antes de auditar.** Hoje isso é a rotação mensal do
+diário: `uv run python -m harness_memoria.auditar --corrigir` move o mês fechado para
+`docs/diario/arquivo/` (`git mv` quando rastreado), cria o mês novo com o cabeçalho, troca o
+ponteiro do CLAUDE.md e imprime cada ação sob `Correções mecânicas:`. Não faz `git add`
+nem commit, e o CI não deve rodá-lo — o CI é a rede para quem esqueceu. Opção desconhecida agora
+sai com código 2 em vez de ser ignorada: um pacote anterior ao `--corrigir`, chamado com
+`--corrigir`, auditaria sem corrigir nada e sem erro. **Mudança de comportamento (2026-10):**
+mês fechado esquecido no topo de `docs/diario/` passou a contar como rotação pendente mesmo
+quando o arquivo do mês novo já existe (aviso até o dia 3, falha depois) — antes, a primeira
+entrada automática do mês criava o arquivo novo e a auditoria passava com o mês velho fora de
+`arquivo/` e o ponteiro defasado.
+
 ## Editar o harness
 
 **Commit é o que publica, inclusive na fonte `directory`.** Medido em 2026-08-04: mesmo

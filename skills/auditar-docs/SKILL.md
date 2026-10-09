@@ -85,9 +85,16 @@ entrada anterior em silêncio. Corrija o cabeçalho para `## AAAA-MM-DD — tít
 exemplo de formato, ponha-o dentro de uma cerca de código (` ``` `) — dentro de cerca este
 cheque não olha.
 
-**`rotação pendente`** — virou o mês. Mova os arquivos do mês anterior para `arquivo/`, crie
-o do mês novo a partir de `template/docs/diario/AAAA-MM.md` (renomeado — o cabeçalho já vem
-pronto dele), e atualize o ponteiro no CLAUDE.md. A partir do dia `diario.dia_limite_rotacao`
+**`rotação pendente`** / **`CLAUDE.md não aponta para o diário do mês corrente`** — virou o
+mês. As duas aparecem juntas e a correção é mecânica: rode o mesmo comando da auditoria com
+`--corrigir` (`uv run python -m harness_memoria.auditar --corrigir`). Ele move o mês fechado
+para `arquivo/`, cria o mês novo com o cabeçalho e troca o ponteiro do CLAUDE.md, imprime
+cada ação sob **`Correções mecânicas:`** e audita em seguida. Confira que esse cabeçalho
+apareceu: se a saída for `opção desconhecida`, o pacote instalado no projeto é anterior ao
+`--corrigir` — atualize-o (`uv sync --upgrade-package harness-memoria`) em vez de fazer a
+rotação à mão. O que sobrar na lista de falhas depois disso (destino já existente em
+`arquivo/`, CLAUDE.md sem ponteiro nenhum) exige decisão sua. Inclua os arquivos movidos e o
+CLAUDE.md no commit — o comando não faz `git add` (só o `git mv` entra no stage sozinho). A partir do dia `diario.dia_limite_rotacao`
 isso deixa de ser aviso e reprova.
 
 **`é o último dos N arquivos do mês e não há próximo sufixo`** — o mês bateu no teto dos 10

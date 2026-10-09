@@ -19,9 +19,8 @@ de chegar ao contexto de uma sessão futura.** Escreva a lição em imperativo e
 ## Regras
 
 1. **Um arquivo por mês**: `AAAA-MM.md`. Mês corrente nesta pasta; meses fechados em
-   `arquivo/`. O arquivo do mês novo é uma CÓPIA do template do harness
-   (`AAAA-MM.md` na raiz do template), renomeada — o cabeçalho já vem pronto, não se escreve
-   à mão.
+   `arquivo/`. A virada do mês é feita pela auditoria com `--corrigir` (ver "Rotação"
+   abaixo) — o cabeçalho do mês novo não se escreve à mão.
 2. **Teto de 400 linhas por arquivo.** Ao estourar, feche e abra `AAAA-MMb.md`, `AAAA-MMc.md`
    e assim por diante. No **décimo** arquivo do mês (o nono sufixo de desdobramento) não há
    próximo sufixo para abrir: mova os mais ANTIGOS do mês para `arquivo/` (o digest de becos
@@ -89,11 +88,17 @@ sai primeiro porque é a única reconstruível do `git log`. A lição vai no **
 
 No dia 1 de cada mês. A partir do dia 3 a auditoria **reprova o build** — aviso pendente por
 semanas foi o que deixou o ponteiro do CLAUDE.md apontando para um arquivo cujo head já
-estava três arquivos atrás:
+estava três arquivos atrás. Mês fechado esquecido no topo desta pasta também conta como
+rotação pendente, mesmo que o arquivo do mês novo já exista.
+
+A rotação é mecânica, e a auditoria a faz:
 
 ```bash
-git mv docs/diario/AAAA-MM*.md docs/diario/arquivo/
-# copiar o AAAA-MM.md do template do harness para docs/diario/, renomeado para o mês novo
-# (o cabeçalho já vem pronto — é a mesma saída que diario._cabecalho_mes() escreve)
-# atualizar o ponteiro do mês corrente no CLAUDE.md
+uv run python -m harness_memoria.auditar --corrigir
 ```
+
+Move o(s) arquivo(s) do mês fechado para `arquivo/` (`git mv` quando rastreado), cria o do
+mês novo com o cabeçalho e troca o ponteiro do CLAUDE.md (ponteiro com âncora `#…` cita uma
+entrada e vai para `arquivo/`). Não faz `git add` nem commit, e não resolve o que exige
+julgamento: destino que já existe em `arquivo/` ou CLAUDE.md sem ponteiro nenhum ficam na
+lista de falhas para alguém decidir.
