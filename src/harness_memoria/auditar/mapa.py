@@ -77,7 +77,10 @@ def propor_divisao(
         for c in linha
         if c.strip().endswith("/") or any(a.startswith(c.strip() + "/") for a in arquivos)
     ]
-    sob = sorted({a for a in arquivos if any(a.startswith(b) for b in bases)})
+    # As entradas da linha que são ARQUIVO entram como candidatas a citação e saem com linha
+    # própria. Sem isto, a linha `ai/`, `meta.py`, … do rede-inspira perdia os arquivos.
+    da_linha = [c.strip() for c in linha if c.strip().rstrip("/") + "/" not in bases]
+    sob = sorted({a for a in arquivos if any(a.startswith(b) for b in bases)} | set(da_linha))
     pastas = sorted({a[: i + 1] for a in sob for i, ch in enumerate(a) if ch == "/"})
     pastas = [p for p in pastas if any(p.startswith(b) and p != b for b in bases)]
 
@@ -98,6 +101,10 @@ def propor_divisao(
             grupos.setdefault(pasta, set()).update(ns)
         for num, arqs in soltos.items():
             proposta.soltos.setdefault(num, []).extend(arqs)
+    for arquivo in da_linha:
+        ns = {n for n, cits in citacoes.items() if arquivo in cits}
+        if ns:
+            grupos.setdefault(arquivo, set()).update(ns)
     proposta.por_pasta = [(p, sorted(ns)) for p, ns in sorted(grupos.items())]
     proposta.soltos = {n: sorted(set(a)) for n, a in sorted(proposta.soltos.items())}
     return proposta
