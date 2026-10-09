@@ -14,6 +14,10 @@ sessão posteriores a ela entram como uma linha cada — e, junto, um digest dos
 descartadas** de todos os meses, inclusive de `arquivo/`. É por isso que o diário tem função
 em vez de ser arquivo morto.
 
+Se a entrada narrada reinjetada não traz `### Aberto / Próximo passo`, os `- [ ]` da
+última entrada que traz a seção vêm junto, marcados como herdados. Por isso a entrada
+nova reescreve a lista inteira: traz o que segue aberto e marca `- [x]` o que fechou.
+
 Corolário prático: **o que você escrever em "Tentativas descartadas" é o que tem mais chance
 de chegar ao contexto de uma sessão futura.** Escreva a lição em imperativo e curta.
 
