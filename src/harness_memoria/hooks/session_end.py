@@ -257,8 +257,14 @@ def main(argv: list[str] | None = None) -> int:
     # entradas, e a do hook seria a ÚLTIMA: `ultima_entrada` reinjetaria o registro
     # automático em vez da narrativa escrita à mão, que é a de maior valor. A skill grava
     # com Write/Edit, então o transcript principal tem a escrita no arquivo de mês — este
-    # é o sinal, e ele custa zero (os fatos já estão na mão).
-    ja = _ja_registrada(fatos["arquivos_escritos"], cfg.pasta_diario)
+    # é o sinal, e ele custa zero (os fatos já estão na mão). A escrita pelo shell também
+    # conta (`cat >> docs/diario/…`): foi assim que as entradas de 2026-10-09 deste
+    # repositório saíram, e o piso foi anexado por cima delas. Relativo vale da raiz.
+    pelo_shell = [
+        str(p if p.is_absolute() else raiz / p)
+        for p in (Path(a).expanduser() for a in fatos.get("arquivos_escritos_por_shell", []))
+    ]
+    ja = _ja_registrada(fatos["arquivos_escritos"] + pelo_shell, cfg.pasta_diario)
     if not autoteste and ja is not None:
         print(
             f"[{ROTULO}] a sessão já registrou {ja.name} à mão — piso dispensado", file=sys.stderr
