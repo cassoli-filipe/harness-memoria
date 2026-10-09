@@ -49,9 +49,9 @@ formato do arquivo de instrução tem efeito detectável.
 
 *Consequência de projeto:* a contramedida não pode ser "escrever um `CLAUDE.md` melhor".
 Tem de ser **reinjeção**. Daí `hooks/reafirmar.py` existir. Ele é registrado com
-`async: true` em `hooks.json` — e a premissa que esta análise afirmava antes era **falsa**:
-dizia que "saída de hook `async` é descartada pelo Claude Code", quando na verdade o binário
-instalado colhe o resultado do hook assíncrono e entrega o `additionalContext` no turno
+`async: true` em `hooks.json` (ADR-0003) — e a premissa que esta análise afirmava antes era
+**falsa**: dizia que "saída de hook `async` é descartada pelo Claude Code", quando na
+verdade o binário instalado colhe o resultado do hook assíncrono e entrega o `additionalContext` no turno
 seguinte. O preço de `async` é um turno de atraso numa mensagem cuja função é combater
 decaimento ao longo de dezenas de passos (aceitável); o ganho é não bloquear ~145 ms em cada
 escrita, sendo que 14 de cada 15 execuções não emitem nada.
@@ -356,6 +356,9 @@ o modo de falha mais caro possível.
 
 ### 6.5 O orçamento do bloco injetado
 
+> Decisão registrada no ADR-0004; ver também o ADR-0006 para o que a "última entrada" passou
+> a significar.
+
 O bloco do `session_start` não tinha teto próprio, e a plataforma tem: `additionalContext`
 tem um limite medido de **10.000 chars** (não documentado como constante, só observado — em
 14 de 40 sessões de um consumidor real o bloco foi substituído por um preview truncado). O
@@ -394,6 +397,8 @@ renderização (`- ` + `\n` por item, 3 ch a mais cada) — sem o ajuste, um blo
 fechava em 6.031 ch para um teto de 6.000.
 
 ### 6.6 O piso do `SessionEnd`, e a narrativa como opt-in
+
+> Decisão registrada no ADR-0002.
 
 Até esta análise, o hook `SessionEnd` tentava narrar a sessão por `claude -p` **sempre**, com
 o piso determinístico como rede de segurança — e a rede vinha DEPOIS da tentativa, num hook
