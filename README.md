@@ -236,7 +236,7 @@ Seis scripts, sete registros em `hooks/hooks.json` (`session_start.py` atende do
 | `session_start` | SessionStart                | injeta a última entrada **narrada** do diário (registros automáticos posteriores viram uma linha cada), digest de becos, índice de ADR e, se houver, o aviso de rotação pendente — orçado para caber em 10.000 ch (ver acima) |
 | `session_start` | SubagentStart                | injeta o bloco REDUZIDO (invioláveis + digest de becos, teto 6.000 ch) para o subagente que nunca leu a sessão principal |
 | `pre_compact`   | PreCompact                  | instrui o sumarizador a preservar invioláveis e IDs de ADR ANTES da compactação — stdout cru, custo de contexto ZERO |
-| `session_end`   | SessionEnd                  | grava o **piso determinístico** da sessão (arquivos, comandos, diffstat, ADRs tocados); narrativa por `claude -p` é **opt-in** (ver abaixo) |
+| `session_end`   | SessionEnd                  | grava o **piso determinístico** da sessão (arquivos, comandos, falhas observadas — comando que falhou, guarda ou permissão que negou —, diffstat, ADRs tocados); narrativa por `claude -p` é **opt-in** (ver abaixo) |
 | `reafirmar`     | PostToolUse (`async`)       | reafirma as invioláveis a cada N escritas                            |
 | `guardar`       | PreToolUse                  | bloqueia `.env`, `--no-verify`, `git add --force` e os caminhos proibidos do projeto |
 | `formatar`      | PostToolUse (`async`)       | roda os formatadores configurados no arquivo editado                 |
