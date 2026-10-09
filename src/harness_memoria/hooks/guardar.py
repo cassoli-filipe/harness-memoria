@@ -239,10 +239,7 @@ def _entregar_adrs_do_caminho(raiz, cfg: Config, evento: dict) -> None:
     rel = posixpath.normpath(rel.replace("\\", "/"))
     if rel == ".." or rel.startswith("../"):
         return
-    try:
-        mapa = adr.mapa_por_caminho((raiz / "CLAUDE.md").read_text(encoding="utf-8"))
-    except OSError:
-        return
+    mapa, _ = adr.ler_mapa(raiz)
     nums = adr.adrs_do_caminho(mapa or [], rel, raiz)
     if not nums:
         return

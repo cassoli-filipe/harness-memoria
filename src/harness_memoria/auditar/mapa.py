@@ -25,7 +25,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..adr import MAX_ADRS_POR_LINHA_DO_MAPA, dados_dos_adrs, mapa_por_caminho
+from ..adr import MAX_ADRS_POR_LINHA_DO_MAPA, dados_dos_adrs, ler_mapa
 
 _TOKEN = re.compile(r"`([^`\s]+)`")
 
@@ -245,10 +245,7 @@ def formatar(
 
 def propor_para_o_projeto(raiz: Path, pasta_adr: Path) -> str:
     """O rascunho de todas as linhas grossas do `CLAUDE.md` de `raiz`."""
-    try:
-        mapa = mapa_por_caminho((raiz / "CLAUDE.md").read_text(encoding="utf-8"))
-    except OSError:
-        mapa = None
+    mapa, origem = ler_mapa(raiz)
     if not mapa:
         return "O CLAUDE.md não tem o mapa 'Qual ADR ler' — nada a propor."
     grossas = [(c, n) for c, n in mapa if len(n) > MAX_ADRS_POR_LINHA_DO_MAPA]
@@ -256,7 +253,8 @@ def propor_para_o_projeto(raiz: Path, pasta_adr: Path) -> str:
         return f"Nenhuma linha do mapa passa de {MAX_ADRS_POR_LINHA_DO_MAPA} ADRs — nada a propor."
     arquivos = arquivos_do_repositorio(raiz)
     blocos = [
-        f"Linhas grossas do mapa (mais de {MAX_ADRS_POR_LINHA_DO_MAPA} ADRs): {len(grossas)}. "
+        f"Linhas grossas do mapa em `{origem.relative_to(raiz).as_posix()}` (mais de "
+        f"{MAX_ADRS_POR_LINHA_DO_MAPA} ADRs): {len(grossas)}. "
         f"Rascunho a partir dos caminhos que cada ADR cita — revise antes de colar."
     ]
     for caminhos, nums in grossas:

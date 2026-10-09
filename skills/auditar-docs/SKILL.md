@@ -76,6 +76,8 @@ que precisa de julgamento. Quem decide é você com o usuário:
 
 Mostre o rascunho e a sua proposta ao usuário antes de mexer no mapa: ele é política do
 projeto. Depois de aplicar, rode a auditoria de novo — caminho que não existe reprova.
+Se o mapa dividido não couber no teto de linhas do `CLAUDE.md`, mova a tabela para
+`docs/adr/mapa-por-caminho.md` e deixe na seção do `CLAUDE.md` só o ponteiro (ADR-0010).
 
 **`invioláveis: item com N chars`** — a primeira frase de uma inviolável não cabe em uma
 linha. Encurte **a primeira frase** no CLAUDE.md; o resto do raciocínio continua no item.

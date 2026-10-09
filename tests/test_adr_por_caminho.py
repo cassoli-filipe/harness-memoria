@@ -288,3 +288,70 @@ def test_auditor_avisa_linha_do_mapa_com_adrs_demais(projeto: Path):
 
 def test_auditor_nao_avisa_no_limite(projeto: Path):
     assert _avisos_do_mapa(projeto, adr.MAX_ADRS_POR_LINHA_DO_MAPA) == []
+
+
+# --------------------------------------------------------------------------- #
+# O mapa num arquivo próprio, apontado pela seção do CLAUDE.md (ADR-0010)
+#
+# Medido em 2026-10-09: o mapa fino levava o CLAUDE.md do rede-inspira de 150 para 203 linhas
+# e o do slice de 150 para 173, contra o teto de 150 — o CLAUDE.md é carregado em toda sessão.
+# --------------------------------------------------------------------------- #
+
+PONTEIRO = """\
+### Qual ADR ler — por caminho que você vai tocar
+
+O mapa mora em [`docs/adr/mapa-por-caminho.md`](docs/adr/mapa-por-caminho.md).
+"""
+
+
+def _mapa_em_arquivo(projeto: Path) -> Path:
+    _com_mapa(projeto)
+    claude = projeto / "CLAUDE.md"
+    texto = claude.read_text(encoding="utf-8")
+    claude.write_text(texto[: texto.index("### Qual ADR ler")] + PONTEIRO, encoding="utf-8")
+    arquivo = projeto / "docs" / "adr" / "mapa-por-caminho.md"
+    arquivo.write_text("# Mapa por caminho\n\n" + MAPA.split("\n", 1)[1], encoding="utf-8")
+    return arquivo
+
+
+def test_ler_mapa_segue_o_ponteiro_da_secao(projeto: Path):
+    arquivo = _mapa_em_arquivo(projeto)
+    mapa, origem = adr.ler_mapa(projeto)
+    assert origem == arquivo
+    assert mapa == adr.mapa_por_caminho(MAPA)
+
+
+def test_ler_mapa_com_a_tabela_no_claude_md_continua_igual(projeto: Path):
+    _com_mapa(projeto)
+    mapa, origem = adr.ler_mapa(projeto)
+    assert origem == projeto / "CLAUDE.md"
+    assert mapa == adr.mapa_por_caminho(MAPA)
+
+
+def test_hook_entrega_os_adrs_do_mapa_em_arquivo(projeto: Path):
+    _mapa_em_arquivo(projeto)
+    assert "ADR-0002" in _escrever(projeto, "src/lote.py")["additionalContext"]
+
+
+def test_auditor_confere_os_caminhos_do_mapa_em_arquivo(projeto: Path):
+    from harness_memoria.auditar import Contexto, rodar
+
+    arquivo = _mapa_em_arquivo(projeto)
+    arquivo.write_text(
+        arquivo.read_text(encoding="utf-8") + "| `nao/existe/` | 0002 |\n", encoding="utf-8"
+    )
+    ctx = Contexto(raiz=projeto, cfg=carregar(projeto))
+    rodar(ctx)
+    falhas = [f for f in ctx.falhas if "nao/existe/" in f]
+    assert len(falhas) == 1 and "mapa-por-caminho.md" in falhas[0]
+
+
+def test_auditor_reprova_ponteiro_para_arquivo_que_nao_existe(projeto: Path):
+    from harness_memoria.auditar import Contexto, rodar
+
+    _mapa_em_arquivo(projeto).unlink()
+    ctx = Contexto(raiz=projeto, cfg=carregar(projeto))
+    rodar(ctx)
+    assert any(
+        "mapa de adr por caminho" in f.lower() and "mapa-por-caminho.md" in f for f in ctx.falhas
+    )

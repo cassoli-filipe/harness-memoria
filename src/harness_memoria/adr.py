@@ -296,10 +296,52 @@ def mapa_por_caminho(texto_claude_md: str) -> list[tuple[list[str], list[str]]] 
     Só tokens de 4 dígitos contam como número: `0005–0008` vira 0005 e 0008.
     """
     m = _SECAO_DO_MAPA.search(texto_claude_md)
+    return _linhas_do_mapa(m.group(1)) if m else None
+
+
+#: O ponteiro da seção do CLAUDE.md para o arquivo do mapa: link markdown ou caminho entre
+#: crases, terminando em `.md`.
+_PONTEIRO_DO_MAPA = re.compile(r"\]\(([^)\s#]+\.md)\)|`([^`\s]+\.md)`")
+
+
+def ler_mapa(raiz: Path) -> tuple[list[tuple[list[str], list[str]]] | None, Path]:
+    """`(mapa, arquivo de onde ele veio)`; `(None, CLAUDE.md)` quando não há a seção.
+
+    A seção "Qual ADR ler" do CLAUDE.md traz a tabela ou aponta o arquivo que a traz
+    (ADR-0010). O ponteiro existe porque o mapa fino não cabe no CLAUDE.md, que é carregado
+    em toda sessão: medido em 2026-10-09, ele levava o do rede-inspira de 150 para 203 linhas
+    e o do slice de 150 para 173, contra o teto de 150. Convenção, e não campo de config,
+    porque chave desconhecida invalida o `harness.json` inteiro na versão instalada do
+    plugin — e config inválida deixa todo hook inerte, a guarda do `.env` inclusive.
+
+    No arquivo apontado vale a seção "Qual ADR ler", se ele tiver uma, ou a tabela do arquivo
+    inteiro. Ponteiro para arquivo que não existe devolve `([], arquivo)`: o auditor reprova.
+    """
+    claude = raiz / "CLAUDE.md"
+    try:
+        texto = claude.read_text(encoding="utf-8")
+    except OSError:
+        return None, claude
+    m = _SECAO_DO_MAPA.search(texto)
     if not m:
-        return None
+        return None, claude
+    linhas = _linhas_do_mapa(m.group(1))
+    if linhas:
+        return linhas, claude
+    for link, crase in _PONTEIRO_DO_MAPA.findall(m.group(1)):
+        alvo = raiz / (link or crase).removeprefix("./")
+        try:
+            outro = alvo.read_text(encoding="utf-8")
+        except OSError:
+            return [], alvo
+        secao = _SECAO_DO_MAPA.search(outro)
+        return _linhas_do_mapa(secao.group(1) if secao else outro), alvo
+    return [], claude
+
+
+def _linhas_do_mapa(trecho: str) -> list[tuple[list[str], list[str]]]:
     saida: list[tuple[list[str], list[str]]] = []
-    for linha in m.group(1).splitlines():
+    for linha in trecho.splitlines():
         if not linha.startswith("|") or set(linha) <= set("|- "):
             continue
         colunas = [c.strip() for c in linha.strip("|").split("|")]

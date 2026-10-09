@@ -37,7 +37,7 @@ from ..adr import (
     arquivos_adr,
     dados_dos_adrs,
     ler_frontmatter,
-    mapa_por_caminho,
+    ler_mapa,
 )
 from ..config import (
     CHAVES_OBRIGATORIAS_DE_REGRA,
@@ -546,12 +546,22 @@ def auditar_mapa_de_adr_por_caminho(ctx: Contexto) -> None:
     """
     if not ctx.cfg.auditoria.exigir_mapa_por_caminho:
         return
-    p = ctx.raiz / "CLAUDE.md"
-    if not p.exists():
+    if not (ctx.raiz / "CLAUDE.md").exists():
         return
-    # O parser é o mesmo que o `PreToolUse` usa para entregar os ADRs (ADR-0009): o mapa
-    # que este cheque aprova é, por construção, o mapa que o hook lê.
-    mapa = mapa_por_caminho(p.read_text(encoding="utf-8"))
+    # O leitor é o mesmo que o `PreToolUse` usa para entregar os ADRs (ADR-0009), ponteiro
+    # para arquivo próprio incluído (ADR-0010): o mapa que este cheque aprova é, por
+    # construção, o mapa que o hook lê.
+    mapa, origem = ler_mapa(ctx.raiz)
+    try:
+        onde = origem.relative_to(ctx.raiz).as_posix()
+    except ValueError:
+        onde = origem.as_posix()
+    if origem.name != "CLAUDE.md" and not origem.exists():
+        ctx.falhar(
+            f"CLAUDE.md, mapa de ADR por caminho: a seção 'Qual ADR ler' aponta `{onde}`, que "
+            f"não existe — sem ele, nenhum ADR chega por caminho"
+        )
+        return
     if mapa is None:
         ctx.falhar(
             "CLAUDE.md não tem a seção 'Qual ADR ler' — sem ela, a única instrução sobre "
@@ -562,7 +572,7 @@ def auditar_mapa_de_adr_por_caminho(ctx: Contexto) -> None:
     for caminhos, numeros in mapa:
         if ctx.cfg.adr.injetar_por_caminho and len(numeros) > MAX_ADRS_POR_LINHA_DO_MAPA:
             ctx.avisar(
-                f"CLAUDE.md, mapa de ADR por caminho: {', '.join(f'`{c}`' for c in caminhos)} "
+                f"{onde}, mapa de ADR por caminho: {', '.join(f'`{c}`' for c in caminhos)} "
                 f"aponta {len(numeros)} ADRs — o PreToolUse entrega de 4 a 9 por escrita "
                 f"(ADR-0009), então os últimos só chegam depois de várias escritas no caminho. "
                 f"Divida a linha por subpasta ou deixe nela só os ADRs que restringem esse código "
@@ -571,13 +581,13 @@ def auditar_mapa_de_adr_por_caminho(ctx: Contexto) -> None:
         for caminho in caminhos:
             if not (ctx.raiz / caminho).exists():
                 ctx.falhar(
-                    f"CLAUDE.md, mapa de ADR por caminho: `{caminho}` não existe — "
+                    f"{onde}, mapa de ADR por caminho: `{caminho}` não existe — "
                     f"corrija o caminho ou remova a linha"
                 )
         for num in numeros:
             d = ctx.adrs.get(num)
             if not d:
-                ctx.falhar(f"CLAUDE.md, mapa de ADR por caminho: ADR-{num} não existe")
+                ctx.falhar(f"{onde}, mapa de ADR por caminho: ADR-{num} não existe")
             elif d["status"] in STATUS_MORTOS:
                 subs = ", ".join(f"ADR-{s}" for s in d["substituido_por"])
                 # Sem substituto a instrução não pode ser "troque por": `deprecated` é o
@@ -588,10 +598,10 @@ def auditar_mapa_de_adr_por_caminho(ctx: Contexto) -> None:
                     else "remova a linha ou aponte o ADR que vale hoje — nada o substituiu"
                 )
                 ctx.falhar(
-                    f"CLAUDE.md, mapa de ADR por caminho: ADR-{num} está {d['status']} — {saida}"
+                    f"{onde}, mapa de ADR por caminho: ADR-{num} está {d['status']} — {saida}"
                 )
     if not mapa:
-        ctx.falhar("CLAUDE.md, mapa de ADR por caminho: tabela vazia")
+        ctx.falhar(f"{onde}, mapa de ADR por caminho: tabela vazia")
 
 
 # --------------------------------------------------------------------------- #
