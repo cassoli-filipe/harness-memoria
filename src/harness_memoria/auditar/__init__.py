@@ -106,11 +106,17 @@ class Contexto:
             return str(p)
 
     def fontes_operacionais(self) -> list[Path]:
-        """Arquivos que INSTRUEM um agente, e por isso não podem citar ADR morto."""
-        saida: list[Path] = []
-        for padrao in self.cfg.auditoria.fontes_operacionais:
-            saida += [p for p in sorted(self.raiz.glob(padrao)) if p.is_file()]
-        return saida
+        """Arquivos que INSTRUEM um agente, e por isso não podem citar ADR morto.
+
+        Default + extras do projeto, sem repetição: um arquivo casado por dois padrões
+        produziria cada falha dele duas vezes, e a lista de falhas que repete item é a que se
+        aprende a ler na diagonal.
+        """
+        aud = self.cfg.auditoria
+        saida: dict[Path, None] = {}
+        for padrao in (*aud.fontes_operacionais, *aud.fontes_operacionais_extras):
+            saida.update((p, None) for p in sorted(self.raiz.glob(padrao)) if p.is_file())
+        return list(saida)
 
 
 def _fora_de_cerca(texto: str) -> str:
@@ -986,6 +992,21 @@ def auditar_scripts_citados(ctx: Contexto) -> None:
                 ctx.falhar(f"{ctx.rel(p)} cita `{alvo}`, que não existe")
 
 
+def auditar_fontes_extras(ctx: Contexto) -> None:
+    """Todo padrão de `auditoria.fontes_operacionais_extras` casa ao menos um arquivo.
+
+    Declarado-e-ausente reprova, pela mesma razão de `checks_do_projeto`: alguém escreveu o
+    caminho para que um documento fosse auditado, e um padrão que não casa nada deixa o
+    documento fora do cheque com o build verde.
+    """
+    for padrao in ctx.cfg.auditoria.fontes_operacionais_extras:
+        if not any(p.is_file() for p in ctx.raiz.glob(padrao)):
+            ctx.falhar(
+                f"auditoria.fontes_operacionais_extras declara `{padrao}`, que não casa "
+                f"nenhum arquivo — corrija o caminho ou remova o padrão"
+            )
+
+
 def auditar_coerencia_readme_claude(ctx: Contexto) -> None:
     """README.md e CLAUDE.md não podem discordar sobre o mesmo fato.
 
@@ -1031,6 +1052,7 @@ CHECKS_GENERICOS = (
     auditar_coerencia_readme_claude,
     auditar_contagem_de_adr_no_readme,
     auditar_scripts_citados,
+    auditar_fontes_extras,
     auditar_diario,
     auditar_claude_md,
     auditar_invioaveis,

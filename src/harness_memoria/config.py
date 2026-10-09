@@ -215,6 +215,10 @@ class ConfigAuditoria:
     #: de ponteiro velho as enxergava — um ADR morto citado numa rule passava o CI.
     #: Nenhum projeto observado usa o recurso ainda, e é mais barato incluir o padrão antes
     #: do primeiro do que descobrir a lacuna com uma regra errada em produção.
+    #:
+    #: `skills/*/SKILL.md` é o layout de skill de um PLUGIN (raiz do plugin, sem `.claude/`),
+    #: tão genérico quanto o de projeto. Sem ele as skills deste próprio harness ficavam fora
+    #: de todo cheque de ponteiro velho mesmo depois da auto-hospedagem (ADR-0001).
     fontes_operacionais: tuple[str, ...] = (
         "CLAUDE.md",
         "AGENTS.md",
@@ -223,12 +227,19 @@ class ConfigAuditoria:
         ".claude/settings.json",
         ".claude/hooks/*",
         ".claude/skills/*/SKILL.md",
+        "skills/*/SKILL.md",
         ".claude/commands/*.md",
         ".claude/agents/*.md",
         "scripts/*.py",
         "scripts/*.mjs",
         ".github/workflows/*.yml",
     )
+    #: Globs que o projeto SOMA ao default, em vez de sobrescrevê-lo. Antes a única forma de
+    #: auditar um documento a mais era redeclarar `fontes_operacionais` inteira no
+    #: `harness.json` — copiar os doze padrões do default e congelá-los ali, de modo que um
+    #: padrão novo do harness nunca chegaria àquele projeto. Padrão declarado aqui que não
+    #: casa nenhum arquivo reprova: alguém escreveu o caminho, e o cheque não está rodando.
+    fontes_operacionais_extras: tuple[str, ...] = ()
     teto_claude_md: int = 150
     #: Fatos que README.md e CLAUDE.md descrevem os dois, para leitores diferentes. Não dá
     #: para eliminar a repetição; dá para proibir que discordem. Cada item: {rotulo, regex}
