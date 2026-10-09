@@ -178,3 +178,17 @@ def test_arquivo_ainda_grosso_nao_recebe_conselho_de_pasta(tmp_path: Path):
     texto = mapa.formatar(p, tmp_path / "docs" / "adr")
     assert "`web/src/styles/tokens.css`" in texto.split("Ainda acima")[1]
     assert "arquivo NOVO" not in texto.split("Ainda acima")[1].split("\n\n")[0]
+
+
+def test_arquivo_que_ja_e_entrada_da_linha_continua_com_seus_adrs(tmp_path: Path):
+    """Medido no rede-inspira: a linha `ai/`, `figuras.py`, `frentes.py`, `meta.py`,
+    `meta_efetiva.py` perdia os quatro arquivos na proposta, e os ADRs de meta caíam em
+    "sem caminho"."""
+    _corpus(tmp_path)
+    _adr(tmp_path, "0017", "A meta mora em `README.md`.")
+    nums = [f"{n:04d}" for n in range(10, 19)]
+    p = mapa.propor_divisao(
+        tmp_path / "docs" / "adr", ["web/src/", "README.md"], nums, ARQUIVOS, 10
+    )
+    assert dict(p.por_pasta)["README.md"] == ["0017"]
+    assert "0017" not in p.sem_caminho
