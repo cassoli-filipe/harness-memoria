@@ -13,3 +13,10 @@ build/
 # para não repetir: a rodada com 9 agentes que gerou o achado é o modo normal de trabalho
 # deste repositório, não uma exceção.
 *.log
+
+# Worktrees que o Claude Code cria para subagentes isolados moram DENTRO do repositório
+# (`.claude/worktrees/<agente>/`). Sem esta linha um `git add -A` comitaria a cópia inteira
+# como repositório embutido, e o `ruff` varria o código do agente junto com o daqui —
+# medido em 2026-10-09: `ruff format --check` passou de 48 para 97 arquivos com um agente
+# rodando.
+.claude/worktrees/
