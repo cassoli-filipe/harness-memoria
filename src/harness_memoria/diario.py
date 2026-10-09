@@ -29,6 +29,12 @@ from .config import ConfigDiario, _mascara_de_cerca
 #: tornaria o digest incompatível entre projetos sem ganho nenhum.
 SECAO_BECOS = "Tentativas descartadas"
 
+#: A lista de pendências. A da entrada narrada MAIS NOVA que a traz é a lista vigente — o
+#: diário é append-only, então ninguém marca `[x]` numa entrada velha: quem fecha um item
+#: reescreve a seção na entrada nova. Lido por `aberto_herdado`.
+SECAO_ABERTO = "Aberto / Próximo passo"
+_ITEM_FEITO = re.compile(r"- \[[xX]\]")
+
 LIMITE_TRANSCRIPT_CHARS = 40_000
 FERRAMENTAS_DE_ESCRITA = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 SUFIXOS_DESDOBRAMENTO = "bcdefghij"
@@ -473,6 +479,43 @@ def ultima_narrada(
             return (rel, corpo), automaticas
         automaticas.append((rel, corpo))
     return None, automaticas
+
+
+def aberto_herdado(pasta: Path) -> tuple[str, str, str] | None:
+    """`(arquivo, título, itens ainda abertos)` quando a narrada mais nova não traz a lista.
+
+    Procura, da mais nova para a mais antiga, a primeira entrada narrada com
+    `### Aberto / Próximo passo`. Se é a própria mais nova, ela já vai inteira no bloco e não
+    há o que herdar (`None`) — inclusive quando a seção diz que nada ficou aberto: seção
+    presente é a decisão de quem escreveu. Senão, devolve dessa entrada os itens que não
+    estão marcados `[x]`, cada um com as linhas de continuação.
+
+    Existe porque o slot do `SessionStart` é UMA entrada: medido em 2026-10-09 neste
+    repositório, a entrada "Fechar o laço" deixou três `- [ ]`, a seguinte fechou só o
+    primeiro e não trouxe a seção, e a sessão seguinte começou com "Estado: concluído" e
+    nenhuma pendência no contexto.
+    """
+    mais_nova = True
+    for rel, corpo in entradas(pasta):
+        if e_automatica(corpo):
+            continue
+        _, secoes = partir_em_secoes(corpo)
+        aberto = next((c for t, c in secoes if t.startswith(SECAO_ABERTO)), None)
+        if aberto is None:
+            mais_nova = False
+            continue
+        if mais_nova:
+            return None
+        prosa, *itens = re.split(r"^(?=- )", aberto.strip(), flags=re.MULTILINE)
+        # Sem item de lista, a prosa É a pendência; com itens, ela é só o rótulo deles.
+        abertos = [i.rstrip() for i in itens if not _ITEM_FEITO.match(i)]
+        if itens and not abertos:
+            return None
+        texto = "\n".join(([prosa.rstrip()] if prosa.strip() else []) + abertos)
+        if not texto:
+            return None
+        return rel, corpo.splitlines()[0].removeprefix("## ").strip(), texto
+    return None
 
 
 def resumir_automatica(corpo: str) -> str:

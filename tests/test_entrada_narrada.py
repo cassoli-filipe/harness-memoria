@@ -187,3 +187,81 @@ def test_aviso_cabe_no_orcamento_com_corpus_grande(tmp_path: Path):
     assert "Rotação do diário pendente" in texto
     assert len(texto) <= SS.TETO_PLATAFORMA_CHARS
     assert SS.conferir_fidelidade(raiz, cfg, texto) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Pendências herdadas
+#
+# Medido neste repositório em 2026-10-09: a entrada "Fechar o laço" deixou três `- [ ]`
+# em `Aberto / Próximo passo`; a seguinte, do mesmo dia, fechou só a primeira e não trouxe
+# a seção. A sessão seguinte recebeu "Estado: concluído" e nenhuma pendência — as duas que
+# sobravam só apareceram lendo a entrada anterior à mão.
+# --------------------------------------------------------------------------- #
+
+
+def _narrada(dia: int, titulo: str, aberto: str | None = None) -> str:
+    corpo = (
+        f"## {MES}-{dia:02d} — {titulo}\n\n**Estado:** concluído\n\n### O que foi feito\n\n- x\n"
+    )
+    if aberto is not None:
+        corpo += f"\n### Aberto / Próximo passo\n\n{aberto}\n"
+    return corpo
+
+
+def test_narrada_sem_aberto_herda_os_itens_abertos_da_anterior(projeto: Path):
+    _anexar(
+        projeto,
+        _narrada(2, "Fechar o laço", "- [x] promover os ADRs\n- [ ] baseline das evals"),
+        _narrada(3, "Integrar a pilha"),
+        _automatica(projeto, 4),
+    )
+    texto = SS.montar(projeto, _cfg(projeto), "startup")
+    assert "Integrar a pilha" in texto
+    assert "- [ ] baseline das evals" in texto
+    assert "promover os ADRs" not in texto
+    assert f"{MES}-02 — Fechar o laço" in texto
+    assert SS.conferir_fidelidade(projeto, _cfg(projeto), texto) == 0
+
+
+def test_narrada_com_aberto_proprio_nao_herda(projeto: Path):
+    _anexar(
+        projeto,
+        _narrada(2, "Fechar o laço", "- [ ] baseline das evals"),
+        _narrada(3, "Integrar a pilha", "- [ ] roadmap"),
+    )
+    texto = SS.montar(projeto, _cfg(projeto), "startup")
+    assert "- [ ] roadmap" in texto
+    assert "baseline das evals" not in texto
+
+
+def test_aberto_todo_marcado_nao_herda_nada(projeto: Path):
+    _anexar(
+        projeto,
+        _narrada(2, "Fechar o laço", "- [x] promover os ADRs"),
+        _narrada(3, "Integrar a pilha"),
+    )
+    assert diario.aberto_herdado(projeto / "docs" / "diario") is None
+
+
+def test_item_marcado_sai_inteiro_com_a_continuacao(projeto: Path):
+    _anexar(
+        projeto,
+        _narrada(2, "Fechar o laço", "- [x] promover os ADRs\n  e abrir os PRs\n- [ ] baseline"),
+        _narrada(3, "Integrar a pilha"),
+    )
+    herdado = diario.aberto_herdado(projeto / "docs" / "diario")
+    assert herdado is not None
+    _, titulo, itens = herdado
+    assert titulo == f"{MES}-02 — Fechar o laço"
+    assert itens.strip() == "- [ ] baseline"
+
+
+def test_fidelidade_reprova_bloco_que_perde_as_herdadas(projeto: Path):
+    _anexar(
+        projeto,
+        _narrada(2, "Fechar o laço", "- [ ] baseline das evals"),
+        _narrada(3, "Integrar a pilha"),
+    )
+    texto = SS.montar(projeto, _cfg(projeto), "startup")
+    mutilado = texto.replace("Aberto / Próximo passo", "Outra seção")
+    assert SS.conferir_fidelidade(projeto, _cfg(projeto), mutilado) == 1

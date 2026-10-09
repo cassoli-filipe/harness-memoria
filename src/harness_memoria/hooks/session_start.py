@@ -525,10 +525,32 @@ def _entrada_a_injetar(
     """
     narrada, depois = diario.ultima_narrada(cfg.pasta_diario)
     if narrada is not None:
-        return narrada, depois, True
+        return _com_aberto_herdado(cfg, narrada), depois, True
     if depois:
         return depois[0], [], False
     return None, [], False
+
+
+def _com_aberto_herdado(cfg: Config, entrada: tuple[str, str]) -> tuple[str, str]:
+    """A entrada com os itens abertos de uma anterior, quando ela não traz a própria lista.
+
+    Entra como SEÇÃO da entrada, e não como peça nova do bloco, para cair pela máquina de
+    corte que já existe: o título começa com `Aberto / Próximo passo`, então o recorte a
+    trata com a prioridade da seção de retomada e `conferir_fidelidade` (cheque 3) reprova
+    o bloco que a descartar — sem orçamento novo e sem cheque novo.
+    """
+    herdado = diario.aberto_herdado(cfg.pasta_diario)
+    if herdado is None:
+        return entrada
+    arquivo, titulo, itens = herdado
+    nome, corpo = entrada
+    secao = (
+        f"\n\n### {diario.SECAO_ABERTO} (herdado)\n\n"
+        f"> Esta entrada não traz a seção. Itens ainda abertos na entrada `{titulo}` "
+        f"(`{cfg.diario.pasta}/{arquivo}`) — confira o que já foi feito antes de retomar.\n\n"
+        f"{itens}"
+    )
+    return nome, corpo.rstrip().removesuffix("---").rstrip() + secao
 
 
 def _bloco_da_entrada(cfg: Config, becos: list[str], cota: int | None) -> str:

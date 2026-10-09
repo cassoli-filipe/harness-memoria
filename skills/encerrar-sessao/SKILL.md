@@ -92,6 +92,13 @@ sendo ele o reinjetado. Escreva a entrada você mesmo.
 5. **Preencha "Aberto / Próximo passo"** de forma ordenada e acionável, e **"Retomar com"**
    com os comandos exatos para voltar ao ponto.
 
+   A seção da entrada mais nova é a lista **vigente** de pendências — a entrada velha não
+   se edita, então é aqui que um item se fecha. Abra a última entrada narrada que tem a
+   seção, traga o que continua aberto, marque `- [x]` o que esta sessão fechou e acrescente
+   o que surgiu. Se nada ficou aberto, escreva a seção mesmo assim (`Nada aberto.`).
+   Entrada sem a seção faz o `SessionStart` herdar os `- [ ]` da anterior, inclusive os que
+   esta sessão já fechou.
+
 6. **Feche com a auditoria:**
 
    ```bash
