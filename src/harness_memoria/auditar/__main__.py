@@ -1,6 +1,7 @@
 """CLI da auditoria.
 
     python -m harness_memoria.auditar [--projeto CAMINHO] [--silencioso] [--corrigir]
+    python -m harness_memoria.auditar [--projeto CAMINHO] --propor-mapa
 
 Roda no CI e falha o build. Saída 0 se passou, 1 se houve falha, 2 se a linha de comando
 tem opção desconhecida; aviso não reprova.
@@ -8,6 +9,10 @@ tem opção desconhecida; aviso não reprova.
 `--corrigir` aplica ANTES da auditoria a parte mecânica do que ela reprovaria — hoje, a
 rotação mensal do diário (`diario.rotacionar`) — e imprime cada ação. Nunca faz `git add`
 nem commit, e o CI não deve rodá-lo: o CI é a rede que pega quem esqueceu, não quem conserta.
+
+`--propor-mapa` não audita: imprime um rascunho de divisão de cada linha do mapa "Qual ADR
+ler" que passa de 10 ADRs (ver `auditar/mapa.py`) e sai com 0. Não escreve nada — dividir
+o mapa é decisão de política do projeto.
 
 Este é o segundo canal de entrega do harness, e a razão de ele existir: o plugin instala os
 hooks para a sessão, mas `${CLAUDE_PLUGIN_ROOT}` é efêmero e muda a cada atualização, então
@@ -24,15 +29,19 @@ from pathlib import Path
 from ..config import NOME_ARQUIVO, ErroDeConfig, carregar, raiz_projeto
 from ..diario import forcar_utf8, rotacionar
 from . import Contexto, relatar, rodar
+from .mapa import propor_para_o_projeto
 
-USO = "uso: python -m harness_memoria.auditar [--projeto CAMINHO] [--silencioso] [--corrigir]"
+USO = (
+    "uso: python -m harness_memoria.auditar [--projeto CAMINHO] "
+    "[--silencioso] [--corrigir] [--propor-mapa]"
+)
 
 #: Opção desconhecida REPROVA (rc 2) em vez de ser ignorada. O motivo é a distribuição em
 #: dois canais: o plugin atualiza por commit e o pacote do consumidor fica preso no
 #: `uv.lock`. Uma skill nova mandando rodar `--corrigir` contra um pacote velho, que
 #: ignorava argumento desconhecido, produziria uma auditoria comum, sem correção nenhuma e
 #: sem erro — exatamente o tipo de sucesso silencioso que este pacote existe para impedir.
-_OPCOES = {"--projeto": True, "--silencioso": False, "--corrigir": False}
+_OPCOES = {"--projeto": True, "--silencioso": False, "--corrigir": False, "--propor-mapa": False}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,6 +80,10 @@ def main(argv: list[str] | None = None) -> int:
             f"Rode a skill `/harness-init` para criar a configuração."
         )
         return 1
+
+    if "--propor-mapa" in argv:
+        print(propor_para_o_projeto(raiz, cfg.pasta_adr))
+        return 0
 
     if "--corrigir" in argv:
         # Impresso mesmo com `--silencioso`: mudança em arquivo nunca é silenciosa.

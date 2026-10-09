@@ -148,6 +148,10 @@ class ConfigAdr:
     #: localizável. Truncar avisando cria gatilho de leitura; truncar calado remove o
     #: único sinal de que falta algo.
     limite_indice: int | None = None
+    #: ADR-0009. O `PreToolUse` de escrita entrega, uma vez por agente e por sessão, os ADRs
+    #: que o mapa "Qual ADR ler" do CLAUDE.md aponta para o caminho editado. Sem o mapa, não
+    #: faz nada; `False` desliga mesmo com o mapa.
+    injetar_por_caminho: bool = True
 
 
 @dataclass(frozen=True)

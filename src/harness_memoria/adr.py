@@ -261,3 +261,161 @@ def adrs_tocados(arquivos: list[str], pasta_adr: Path, raiz: Path) -> list[str]:
         if m and m.group(1) not in ids:
             ids.append(m.group(1))
     return [f"ADR-{i}" for i in ids]
+
+
+# --------------------------------------------------------------------------- #
+# Mapa "Qual ADR ler" por caminho (ADR-0009)
+# --------------------------------------------------------------------------- #
+
+#: Sem `## Regra`, a `## Decisão` entra INTEIRA até este tamanho; acima, só o ponteiro.
+#: Medido em 2026-10-09: aqui as decisões têm de 381 a 2.016 ch (8 de 9 cabem); no ValidaNI,
+#: de 512 a 21.487 ch (19 de 93 cabem), mas 71 dos 93 têm `## Regra`.
+TETO_DECISAO_CHARS = 1_500
+
+#: O bloco inteiro de uma escrita. Abaixo do teto de 10.000 ch da plataforma (ADR-0004) com
+#: folga, porque ele chega junto de um resultado de ferramenta, não sozinho.
+TETO_ADRS_POR_CAMINHO_CHARS = 6_000
+
+#: Acima disto, o auditor avisa que a linha do mapa é grossa demais. Um bloco de
+#: `TETO_ADRS_POR_CAMINHO_CHARS` entrega de 4 a 9 ADRs por escrita nos corpora medidos, então
+#: uma linha maior só chega inteira depois de várias escritas no caminho. Medido no ValidaNI
+#: em 2026-10-09: `apps/web/src/` aponta 58 ADRs e levaria 10 escritas (~55 mil ch).
+MAX_ADRS_POR_LINHA_DO_MAPA = 10
+
+_SECAO_DO_MAPA = re.compile(
+    r"^#{2,4} Qual ADR ler.*?\n(.*?)(?=^#{2,4} |\Z)", re.MULTILINE | re.DOTALL
+)
+
+
+def mapa_por_caminho(texto_claude_md: str) -> list[tuple[list[str], list[str]]] | None:
+    """`[(caminhos, números de ADR)]`, uma tupla por linha útil do mapa; `None` sem a seção.
+
+    Um parser só, para os dois leitores: o auditor, que confere que o mapa aponta para o que
+    existe, e o `PreToolUse`, que entrega os ADRs na escrita. Dois parsers divergiriam na
+    primeira correção, e o mapa que o auditor aprova passaria a não ser o mapa que o hook lê.
+    Só tokens de 4 dígitos contam como número: `0005–0008` vira 0005 e 0008.
+    """
+    m = _SECAO_DO_MAPA.search(texto_claude_md)
+    if not m:
+        return None
+    saida: list[tuple[list[str], list[str]]] = []
+    for linha in m.group(1).splitlines():
+        if not linha.startswith("|") or set(linha) <= set("|- "):
+            continue
+        colunas = [c.strip() for c in linha.strip("|").split("|")]
+        if len(colunas) < 2 or colunas[0].lower() == "caminho":
+            continue
+        saida.append((re.findall(r"`([^`]+)`", colunas[0]), re.findall(r"\b(\d{4})\b", colunas[1])))
+    return saida
+
+
+def adrs_do_caminho(mapa: list[tuple[list[str], list[str]]], rel: str, raiz: Path) -> list[str]:
+    """Números dos ADRs de todas as linhas que casam `rel`, sem repetir, na ordem do mapa."""
+    nums: list[str] = []
+    for caminhos, numeros in mapa:
+        if any(_casa_caminho(c, rel, raiz) for c in caminhos):
+            for n in numeros:
+                if n not in nums:
+                    nums.append(n)
+    return nums
+
+
+def _casa_caminho(entrada: str, rel: str, raiz: Path) -> bool:
+    """Pasta (com `/` no fim, ou que existe como pasta) casa por prefixo; arquivo, exato."""
+    alvo = entrada.strip().replace("\\", "/").removeprefix("./")
+    if alvo.endswith("/") or (raiz / alvo).is_dir():
+        return rel.startswith(alvo.rstrip("/") + "/")
+    return rel == alvo
+
+
+def contexto_por_caminho(
+    raiz: Path, pasta: Path, nums: list[str], rel: str
+) -> tuple[str, list[str]]:
+    """`(bloco para o additionalContext, ADRs que ele entrega)`; `("", [])` sem nada vivo.
+
+    De cada ADR: a `## Regra`, se houver; senão a `## Decisão` inteira, se couber em
+    `TETO_DECISAO_CHARS`; senão só o cabeçalho com o tamanho e o caminho. Nunca texto pela
+    metade: a parte cortada de uma decisão costuma ser a que restringe, e meia decisão lê
+    como permissão.
+
+    Os ADRs entram na ordem do mapa enquanto o bloco cabe em `TETO_ADRS_POR_CAMINHO_CHARS`.
+    O primeiro que não cabe e todos depois dele são NOMEADOS numa linha e ficam fora de
+    `mostrados`, para a próxima escrita no caminho os entregar inteiros. A versão anterior
+    rebaixava todos a ponteiro antes de cortar, e no ValidaNI, onde `apps/web/src/` aponta
+    58 ADRs, entregava 20 ponteiros e nenhuma `## Regra`, embora 71 dos 93 ADRs de lá
+    tenham uma.
+    """
+    por_num = {f.name[:4]: f for f in arquivos_adr(pasta)}
+    abertura = (
+        f'## ADRs de `{rel}` — mapa "Qual ADR ler" do CLAUDE.md\n\n'
+        f"Valem para o arquivo desta escrita. Cada um aparece uma vez por sessão; o texto "
+        f"completo está no caminho ao lado do título."
+    )
+    pecas: list[str] = []
+    mostrados: list[str] = []
+    adiados: list[str] = []
+
+    def montar(pendentes: list[str]) -> str:
+        blocos = [abertura, *pecas]
+        if pendentes:
+            nomes = ", ".join(f"ADR-{n}" for n in pendentes[:_MAX_NOMES_ADIADOS])
+            if len(pendentes) > _MAX_NOMES_ADIADOS:
+                nomes += f" e mais {len(pendentes) - _MAX_NOMES_ADIADOS}"
+            blocos.append(
+                f"> Também mapeados para este caminho, ficam para a próxima escrita nele por "
+                f"espaço: {nomes}."
+            )
+        return "\n\n".join(blocos)
+
+    for i, num in enumerate(nums):
+        peca = _peca_do_adr(raiz, por_num.get(num), num)
+        if peca is None:
+            continue
+        pecas.append(peca)
+        # Mede com os que faltam já nomeados: é o texto que sai se este for o último a caber.
+        if len(montar(nums[i + 1 :])) <= TETO_ADRS_POR_CAMINHO_CHARS:
+            mostrados.append(num)
+            continue
+        pecas.pop()
+        adiados = nums[i:]
+        break
+    if not pecas:
+        return "", []
+    return montar(adiados), mostrados
+
+
+#: Na linha dos adiados. Sem teto, um mapa de 500 ADRs gastaria só em nomes o bloco inteiro e
+#: nenhum ADR caberia — nem esta escrita nem as seguintes entregariam coisa alguma.
+_MAX_NOMES_ADIADOS = 30
+
+
+def _peca_do_adr(raiz: Path, f: Path | None, num: str) -> str | None:
+    """Cabeçalho e corpo de um ADR vivo; `None` para ausente, ilegível ou morto."""
+    if f is None:
+        return None
+    try:
+        texto = f.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    status = normalizar_status(ler_frontmatter(texto).get("status", ""))
+    if status in STATUS_MORTOS:
+        return None
+    try:
+        onde = f.relative_to(raiz).as_posix()
+    except ValueError:
+        onde = f.as_posix()
+    regra, decisao = _secao(texto, "Regra"), _secao(texto, "Decis[ãa]o")
+    if regra:
+        corpo = regra
+    elif decisao and len(decisao) <= TETO_DECISAO_CHARS:
+        corpo = decisao
+    elif decisao:
+        corpo = f"> Decisão com {len(decisao)} ch, fora deste bloco: leia `{onde}` antes de editar."
+    else:
+        corpo = f"> Leia `{onde}` antes de editar."
+    return f"### ADR-{num} [{status}] {titulo_de(texto, num)} — `{onde}`\n\n{corpo}"
+
+
+def _secao(texto: str, nome: str) -> str:
+    m = re.search(rf"^## {nome}\s*\n(.*?)(?=^## |\Z)", texto, re.MULTILINE | re.DOTALL)
+    return m.group(1).strip() if m else ""

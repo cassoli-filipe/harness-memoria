@@ -122,6 +122,14 @@ inteira. Retrieval por caminho troca o corpus por 5 a 7.
 Preencha lendo os ADRs, não adivinhando. Cada caminho tem de existir e cada ADR citado tem de
 estar vivo — a auditoria verifica os dois.
 
+**Uma linha, no máximo 10 ADRs.** O mapa não é só leitura: desde o ADR-0009 o agente recebe os
+ADRs da linha ao editar um arquivo dela. Uma linha que cobre `src/` inteiro com dezenas de ADRs
+entrega regras sem relação com o arquivo editado, aos pedaços, ao longo de várias edições — no
+ValidaNI, `apps/web/src/` com 58 ADRs custaria ~54 mil caracteres numa sessão. Prefira a pasta
+ou o arquivo que o ADR de fato cita, e deixe numa linha de pasta larga só a regra que vale para
+todo arquivo dela. Com o corpus migrado, rode a auditoria com `--propor-mapa`: ela imprime um
+rascunho a partir dos caminhos que cada ADR cita e separa o que precisa de julgamento.
+
 ## Fase 5 — Ligar o CI
 
 Se o projeto tem CI, adicione o passo da auditoria **primeiro** no workflow: é barato, e se a

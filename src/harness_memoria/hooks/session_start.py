@@ -184,6 +184,11 @@ def main(argv: list[str] | None = None) -> int:
     evento_nome = str(evento.get("hook_event_name") or "SessionStart")
     reduzido = evento_nome == "SubagentStart"
 
+    # O resumo da compactação não leva os ADRs que o `PreToolUse` entregou por caminho
+    # (ADR-0009): sem esquecer, a sessão compactada nunca mais os receberia.
+    if evento.get("source") == "compact" and evento.get("session_id"):
+        C.esquecer_adrs_vistos(raiz, str(evento["session_id"]))
+
     contexto_texto = montar(raiz, cfg, str(evento.get("source") or "startup"), reduzido=reduzido)
     if not contexto_texto:
         return 0

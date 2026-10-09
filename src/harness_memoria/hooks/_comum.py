@@ -166,7 +166,48 @@ def apagar_contador(raiz: Path, sessao: str) -> None:
 _ESTADO_QUE_EXPIRA: dict[str, int] = {
     "escritas_*.txt": VALIDADE_ESTADO_DIAS,
     "sensores_*.json": VALIDADE_ESTADO_DIAS,
+    "adrs_vistos_*.txt": VALIDADE_ESTADO_DIAS,
 }
+
+
+def _caminho_adrs_vistos(raiz: Path, sessao: str, agente: str = "") -> Path:
+    seguro = re.sub(r"[^A-Za-z0-9_-]", "_", sessao)[:64]
+    sufixo = "_" + re.sub(r"[^A-Za-z0-9_-]", "_", agente)[:64] if agente else ""
+    return pasta_estado(raiz) / f"adrs_vistos_{seguro}{sufixo}.txt"
+
+
+def ler_adrs_vistos(raiz: Path, sessao: str, agente: str = "") -> set[str]:
+    """ADRs já entregues a este agente nesta sessão (ADR-0009). Nunca lança."""
+    try:
+        return set(_caminho_adrs_vistos(raiz, sessao, agente).read_text(encoding="utf-8").split())
+    except OSError:
+        return set()
+
+
+def marcar_adrs_vistos(raiz: Path, sessao: str, agente: str, nums: list[str]) -> None:
+    try:
+        pasta = pasta_estado(raiz)
+        _limpar_estado_velho(pasta)
+        with _caminho_adrs_vistos(raiz, sessao, agente).open("a", encoding="utf-8") as f:
+            f.write("".join(f"{n}\n" for n in nums))
+    except OSError:
+        pass
+
+
+def esquecer_adrs_vistos(raiz: Path, sessao: str) -> None:
+    """Na compactação: o contexto que tinha os ADRs foi resumido, então eles voltam.
+
+    Apaga o da thread principal e o de todo subagente da sessão — o resumo é da sessão.
+    """
+    try:
+        seguro = re.sub(r"[^A-Za-z0-9_-]", "_", sessao)[:64]
+        pasta = pasta_estado(raiz)
+        # Dois globs, não `{seguro}*`: esse casaria também a sessão `{seguro}0…`.
+        for padrao in (f"adrs_vistos_{seguro}.txt", f"adrs_vistos_{seguro}_*.txt"):
+            for p in pasta.glob(padrao):
+                p.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _limpar_estado_velho(pasta: Path) -> None:

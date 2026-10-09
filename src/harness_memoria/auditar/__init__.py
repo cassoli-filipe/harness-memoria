@@ -31,11 +31,13 @@ from datetime import datetime
 from pathlib import Path
 
 from ..adr import (
+    MAX_ADRS_POR_LINHA_DO_MAPA,
     STATUS_MORTOS,
     STATUS_VALIDOS,
     arquivos_adr,
     dados_dos_adrs,
     ler_frontmatter,
+    mapa_por_caminho,
 )
 from ..config import (
     CHAVES_OBRIGATORIAS_DE_REGRA,
@@ -547,30 +549,32 @@ def auditar_mapa_de_adr_por_caminho(ctx: Contexto) -> None:
     p = ctx.raiz / "CLAUDE.md"
     if not p.exists():
         return
-    texto = p.read_text(encoding="utf-8")
-    m = re.search(r"^#{2,4} Qual ADR ler.*?\n(.*?)(?=^#{2,4} |\Z)", texto, re.MULTILINE | re.S)
-    if not m:
+    # O parser é o mesmo que o `PreToolUse` usa para entregar os ADRs (ADR-0009): o mapa
+    # que este cheque aprova é, por construção, o mapa que o hook lê.
+    mapa = mapa_por_caminho(p.read_text(encoding="utf-8"))
+    if mapa is None:
         ctx.falhar(
             "CLAUDE.md não tem a seção 'Qual ADR ler' — sem ela, a única instrução sobre "
             "ADR volta a ser 'leia o índice', que é a instrução que ninguém executa"
         )
         return
 
-    linhas_uteis = 0
-    for linha in m.group(1).splitlines():
-        if not linha.startswith("|") or set(linha) <= set("|- "):
-            continue
-        colunas = [c.strip() for c in linha.strip("|").split("|")]
-        if len(colunas) < 2 or colunas[0].lower() == "caminho":
-            continue
-        linhas_uteis += 1
-        for caminho in re.findall(r"`([^`]+)`", colunas[0]):
+    for caminhos, numeros in mapa:
+        if ctx.cfg.adr.injetar_por_caminho and len(numeros) > MAX_ADRS_POR_LINHA_DO_MAPA:
+            ctx.avisar(
+                f"CLAUDE.md, mapa de ADR por caminho: {', '.join(f'`{c}`' for c in caminhos)} "
+                f"aponta {len(numeros)} ADRs — o PreToolUse entrega de 4 a 9 por escrita "
+                f"(ADR-0009), então os últimos só chegam depois de várias escritas no caminho. "
+                f"Divida a linha por subpasta ou deixe nela só os ADRs que restringem esse código "
+                f"— a auditoria com `--propor-mapa` imprime um rascunho da divisão"
+            )
+        for caminho in caminhos:
             if not (ctx.raiz / caminho).exists():
                 ctx.falhar(
                     f"CLAUDE.md, mapa de ADR por caminho: `{caminho}` não existe — "
                     f"corrija o caminho ou remova a linha"
                 )
-        for num in re.findall(r"\b(\d{4})\b", colunas[1]):
+        for num in numeros:
             d = ctx.adrs.get(num)
             if not d:
                 ctx.falhar(f"CLAUDE.md, mapa de ADR por caminho: ADR-{num} não existe")
@@ -586,7 +590,7 @@ def auditar_mapa_de_adr_por_caminho(ctx: Contexto) -> None:
                 ctx.falhar(
                     f"CLAUDE.md, mapa de ADR por caminho: ADR-{num} está {d['status']} — {saida}"
                 )
-    if not linhas_uteis:
+    if not mapa:
         ctx.falhar("CLAUDE.md, mapa de ADR por caminho: tabela vazia")
 
 
