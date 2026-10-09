@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: implemented
 data: 2026-10-09
 emenda: [ADR-0009]
 ---
@@ -88,6 +88,9 @@ Se o `CLAUDE.md` deixar de ser carregado inteiro em toda sessão, ou se a plataf
 carregar arquivos por caminho (regras com `paths:`), o mapa pode ir para lá.
 
 ## Plano de Implementação
+
+Implementado no commit "Deixar o mapa por caminho morar num arquivo próprio, apontado pelo
+CLAUDE.md". Aprovado pelo usuário em 2026-10-09.
 
 - **Arquivos a tocar:** `src/harness_memoria/adr.py` (`ler_mapa`, `_linhas_do_mapa`),
   `src/harness_memoria/hooks/guardar.py`, `src/harness_memoria/auditar/__init__.py` (cheque do
