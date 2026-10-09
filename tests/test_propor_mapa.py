@@ -59,6 +59,7 @@ def test_divide_pelas_pastas_que_os_adrs_citam(tmp_path: Path):
     assert dict(p.por_pasta) == {
         "web/src/components/": ["0015"],
         "web/src/lib/": ["0012", "0013", "0014"],
+        "web/src/main.tsx": ["0016"],
         "web/src/styles/": ["0010", "0011"],
     }
 
@@ -86,12 +87,25 @@ def test_pasta_que_nao_divide_mais_desce_ate_o_arquivo(tmp_path: Path):
     assert "web/src/lib/" not in p
 
 
-def test_arquivo_solto_na_pasta_da_linha_sai_a_parte(tmp_path: Path):
-    """Um arquivo citado direto na pasta da linha costuma ser o registro daquela mudança —
-    como cada migração do ValidaNI —, não regra para o próximo arquivo da pasta."""
+def test_arquivo_com_data_no_nome_sai_a_parte(tmp_path: Path):
+    """Migração (`20260805160000_x.sql`) se cria uma vez e não se edita: o ADR que a cita
+    registra aquela mudança, e em geral não é regra para a PRÓXIMA migração da pasta."""
+    _corpus(tmp_path)
+    arquivos = ARQUIVOS + ["web/src/20260805160000_politica.sql"]
+    _adr(tmp_path, "0016", "A política nova: `20260805160000_politica.sql`.")
+    nums = [f"{n:04d}" for n in range(10, 19)]
+    p = mapa.propor_divisao(tmp_path / "docs" / "adr", ["web/src/"], nums, arquivos, 10)
+    assert p.soltos == {"0016": ["web/src/20260805160000_politica.sql"]}
+
+
+def test_modulo_direto_na_pasta_da_linha_ganha_linha_propria(tmp_path: Path):
+    """Medido no rede-inspira: os módulos do backend ficam direto em `ingest/` e `routers/`,
+    e o ADR que cita `ingest/bronze.py` é regra para esse arquivo, não registro."""
     _corpus(tmp_path)
     p = _proposta(tmp_path, teto=10)
-    assert p.soltos == {"0016": ["web/src/main.tsx"]}
+    assert dict(p.por_pasta)["web/src/main.tsx"] == ["0016"]
+    assert p.soltos == {}
+    assert "web/src/" not in dict(p.por_pasta)  # a pasta da linha não volta inteira
 
 
 def test_link_markdown_relativo_conta_como_citacao(tmp_path: Path):

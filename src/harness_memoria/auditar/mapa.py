@@ -7,9 +7,9 @@ a linha à mão é o tipo de tarefa que ninguém faz: medido no ValidaNI, `apps/
 casados contra os arquivos reais do repositório, e separa o que não dá para decidir sem
 julgamento:
 
-* **arquivo solto** — o ADR cita só um arquivo direto na pasta da linha. No ValidaNI é cada
-  migração em `supabase/migrations/`: o ADR registra aquela mudança e, em geral, não é regra
-  para o próximo arquivo da pasta;
+* **arquivo com data no nome** — o ADR cita só uma migração (`20260805160000_x.sql`) da
+  pasta da linha. No ValidaNI são 20 dos 35 ADRs de `supabase/migrations/`: cada um registra
+  aquela mudança e, em geral, não é regra para a próxima migração;
 * **sem caminho** — o ADR não cita nada reconhecível sob a linha: ou é regra geral da pasta,
   ou está no mapa por engano.
 
@@ -37,6 +37,12 @@ _LINK = re.compile(r"\]\(([^)\s]+)\)")
 #: Um token que casa mais arquivos que isto é ambíguo (`index.ts`, `__init__.py`) e não diz
 #: a qual pasta o ADR pertence — tratado como não citado, em vez de espalhar o ADR por todas.
 _MAX_CASAMENTOS_POR_TOKEN = 3
+
+#: Arquivo que se cria uma vez e não se edita: a migração (`20260805160000_x.sql`). O ADR que
+#: cita só um desses registra aquela mudança e, em geral, não é regra para o próximo arquivo
+#: da pasta — vai para julgamento. Sem a data, o arquivo citado direto na pasta da linha é
+#: módulo vivo (no rede-inspira, `ingest/bronze.py`) e ganha linha própria.
+_COM_DATA_NO_NOME = re.compile(r"\d{8,}[_-]")
 
 _PASTAS_IGNORADAS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
 
@@ -137,13 +143,14 @@ def _dividir(
                 da_pasta.add(num)
             elif "/" in resto:
                 filhos.setdefault(base + resto.split("/")[0] + "/", set()).add(num)
-            elif raiz_da_linha:
+            elif raiz_da_linha and _COM_DATA_NO_NOME.match(resto):
                 soltos.setdefault(num, []).append(c)
             else:
                 por_arquivo.setdefault(c, set()).add(num)
 
     linhas: list[tuple[str, set[str]]] = []
-    if len(da_pasta.union(*por_arquivo.values())) <= teto:
+    # Na pasta da linha original, juntar os arquivos na linha da pasta recriaria a linha grossa.
+    if not raiz_da_linha and len(da_pasta.union(*por_arquivo.values())) <= teto:
         da_pasta = da_pasta.union(*por_arquivo.values())
         por_arquivo = {}
     if da_pasta:
@@ -208,8 +215,9 @@ def formatar(
             )
     if proposta.soltos:
         partes.append(
-            "Citam só um arquivo solto na pasta da linha. Em geral registram aquela mudança e "
-            "não são regra para o próximo arquivo da pasta; ponha numa linha só os que forem:"
+            "Citam só arquivo com data no nome (migração) na pasta da linha. Em geral registram "
+            "aquela mudança e não são regra para o próximo arquivo; ponha numa linha só os que "
+            "forem:"
         )
         partes.append(
             "\n".join(
