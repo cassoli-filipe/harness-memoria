@@ -27,7 +27,7 @@ desde `docs/adr/0001-auto-hospedagem.md`.
 
 ## Memória
 
-- [Diário de engenharia](docs/diario/2026-09.md) — última sessão, becos sem saída.
+- [Diário de engenharia](docs/diario/2026-10.md) — última sessão, becos sem saída.
 - [Decisões arquiteturais](docs/adr/README.md) — o que já foi decidido e por quê.
 
 ### Qual ADR ler — por caminho que você vai tocar

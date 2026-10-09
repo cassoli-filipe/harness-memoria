@@ -16,10 +16,11 @@ import re
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .config import ConfigDiario
+from .config import ConfigDiario, _mascara_de_cerca
 
 #: A seção de maior retorno do diário: é o que impede o próximo agente de repetir um beco
 #: sem saída já explorado. Nome fixo de propósito — é o contrato entre quem escreve
@@ -188,6 +189,220 @@ class _lock:
             with contextlib.suppress(OSError):
                 self.caminho.unlink(missing_ok=True)
         return False
+
+
+# --------------------------------------------------------------------------- #
+# Rotação mensal
+# --------------------------------------------------------------------------- #
+
+#: Arquivo de mês no TOPO da pasta, com o sufixo de desdobramento opcional. Mais estrito que
+#: `_PADRAO_MES` (que é glob e aceita `2026-09-rascunho.md`) porque aqui o resultado é MOVER
+#: o arquivo — nome fora do padrão fica para quem o criou decidir.
+_ARQUIVO_DE_MES = re.compile(rf"^(\d{{4}}-\d{{2}})[{SUFIXOS_DESDOBRAMENTO}]?\.md$")
+
+
+@dataclass(frozen=True)
+class PlanoDeRotacao:
+    """O que a rotação do mês faria agora, calculado do disco — só leitura.
+
+    É o mesmo objeto para os três leitores: a auditoria (que reprova e descreve), o
+    `--corrigir` (que aplica a parte mecânica) e, depois, o aviso do SessionStart. Três
+    descrições escritas à parte de "o que falta rotacionar" divergiriam na primeira
+    correção — foi o que aconteceu com a receita manual, que vivia em prosa na skill
+    `/auditar-docs` e na mensagem do auditor ao mesmo tempo.
+    """
+
+    mes: str
+    arquivar: tuple[Path, ...] = ()
+    #: Mês fechado no topo cujo destino em `arquivo/` JÁ existe. Não é mecânico: decidir
+    #: qual das duas cópias vale exige ler as duas.
+    conflitos: tuple[Path, ...] = ()
+    criar: Path | None = None
+    #: Ponteiros do CLAUDE.md (fora de cerca) que citam um mês fechado, como aparecem no
+    #: texto — com âncora, se houver.
+    ponteiros: tuple[str, ...] = ()
+    #: CLAUDE.md sem ponteiro de diário nenhum fora de cerca. Não há o que trocar: alguém
+    #: tem de decidir ONDE o ponteiro entra, e isso não é mecânico.
+    sem_ponteiro: bool = False
+
+    @property
+    def mecanico(self) -> bool:
+        """Há algo que `rotacionar` faz sozinho."""
+        return bool(self.arquivar or self.criar or self.ponteiros)
+
+    @property
+    def pendente(self) -> bool:
+        """A pasta do diário ainda não virou o mês — mecânico ou não."""
+        return bool(self.arquivar or self.conflitos or self.criar)
+
+    def descrever(self) -> str:
+        partes = []
+        if self.arquivar:
+            nomes = ", ".join(p.name for p in self.arquivar)
+            partes.append(f"mover {nomes} para `arquivo/`")
+        if self.criar:
+            partes.append(f"criar `{self.criar.name}` com o cabeçalho")
+        if self.ponteiros:
+            partes.append(f"trocar {len(self.ponteiros)} ponteiro(s) do CLAUDE.md")
+        if self.conflitos:
+            nomes = ", ".join(p.name for p in self.conflitos)
+            partes.append(f"resolver à mão {nomes} (o destino em `arquivo/` já existe)")
+        if self.sem_ponteiro:
+            partes.append("pôr à mão no CLAUDE.md um ponteiro para o diário do mês")
+        return "; ".join(partes)
+
+
+def _ponteiro_de_mes(prefixo: str) -> re.Pattern[str]:
+    """`{prefixo}/AAAA-MM[sufixo].md[#âncora]` — só o arquivo de mês no TOPO da pasta.
+
+    `docs/diario/arquivo/2026-08.md` não casa: depois de `{prefixo}/` vem `arquivo/`, não
+    dígito. Um ponteiro que já aponta para o arquivo morto está certo como está.
+    """
+    return re.compile(
+        rf"{re.escape(prefixo)}/(\d{{4}}-\d{{2}})[{SUFIXOS_DESDOBRAMENTO}]?\.md(#[^)\s]*)?"
+    )
+
+
+def planejar_rotacao(raiz: Path, cfg: ConfigDiario, hoje: datetime) -> PlanoDeRotacao:
+    mes = hoje.strftime("%Y-%m")
+    prefixo = cfg.pasta.rstrip("/")
+    pasta = raiz / prefixo
+    if not pasta.is_dir():
+        return PlanoDeRotacao(mes=mes)
+
+    fechados = sorted(
+        p
+        for p in pasta.iterdir()
+        if p.is_file() and (m := _ARQUIVO_DE_MES.match(p.name)) and m.group(1) < mes
+    )
+    conflitos = tuple(p for p in fechados if (pasta / "arquivo" / p.name).exists())
+    arquivar = tuple(p for p in fechados if p not in conflitos)
+    criar = None if any(pasta.glob(f"{mes}*.md")) else pasta / f"{mes}.md"
+
+    ponteiros: list[str] = []
+    sem_ponteiro = True
+    claude = raiz / "CLAUDE.md"
+    if claude.exists():
+        linhas = claude.read_text(encoding="utf-8").splitlines()
+        padrao = _ponteiro_de_mes(prefixo)
+        for linha, cercada in zip(linhas, _mascara_de_cerca(linhas), strict=True):
+            if cercada:
+                continue
+            for m in padrao.finditer(linha):
+                sem_ponteiro = False
+                if m.group(1) < mes:
+                    ponteiros.append(m.group(0))
+
+    return PlanoDeRotacao(
+        mes=mes,
+        arquivar=arquivar,
+        conflitos=conflitos,
+        criar=criar,
+        ponteiros=tuple(ponteiros),
+        sem_ponteiro=sem_ponteiro,
+    )
+
+
+def rotacionar(raiz: Path, cfg: ConfigDiario, hoje: datetime) -> list[str]:
+    """Aplica a parte MECÂNICA da rotação e devolve uma linha por ação feita.
+
+    Mecânico = derivável sem julgamento e idempotente: o plano é recalculado do disco a
+    cada chamada, então uma execução interrompida no meio termina na próxima, e a segunda
+    execução seguida devolve `[]`. Nunca faz `git add` nem commit — quem roda decide o que
+    entra no commit, e um auditor que commita sozinho tiraria do humano a última leitura. (O
+    `git mv` registra o próprio rename no índice; é como o git move, não uma escolha daqui.)
+
+    A ordem importa: o CLAUDE.md é reescrito por ÚLTIMO, porque o ponteiro novo só é
+    verdade depois que o mês novo existe; parar antes disso deixa o ponteiro velho
+    apontando para um arquivo que ainda está lá, não um ponteiro novo para o nada.
+    """
+    plano = planejar_rotacao(raiz, cfg, hoje)
+    if not plano.mecanico:
+        return []
+    prefixo = cfg.pasta.rstrip("/")
+    pasta = raiz / prefixo
+    acoes: list[str] = []
+
+    if plano.arquivar:
+        (pasta / "arquivo").mkdir(exist_ok=True)
+    for origem in plano.arquivar:
+        rel = f"{prefixo}/{origem.name}"
+        destino = f"{prefixo}/arquivo/{origem.name}"
+        if _git_mv(raiz, rel, destino):
+            acoes.append(f"movido (git mv): {rel} → {destino}")
+        else:
+            origem.rename(raiz / destino)
+            acoes.append(f"movido (não rastreado pelo git): {rel} → {destino}")
+
+    if plano.criar:
+        with _lock(plano.criar):
+            if not plano.criar.exists():
+                plano.criar.write_text(_cabecalho_mes(hoje), encoding="utf-8")
+        acoes.append(f"criado: {prefixo}/{plano.criar.name}")
+
+    if plano.ponteiros:
+        acoes += _trocar_ponteiros(raiz / "CLAUDE.md", prefixo, plano.mes)
+    return acoes
+
+
+def _git_mv(raiz: Path, rel: str, destino: str) -> bool:
+    """`git mv` quando o arquivo é rastreado; `False` em qualquer outro caso.
+
+    `git -C raiz` e caminho relativo a `raiz`, não `(raiz / ".git").exists()`: num monorepo
+    a raiz do harness fica ABAIXO da raiz do repositório, e o `.git` não está ali. Sem git
+    no PATH, fora de repositório ou arquivo não rastreado, quem chama cai no `rename` — o
+    git vê depois uma remoção mais um arquivo novo, e o relatório diz isso.
+    """
+    try:
+        rastreado = subprocess.run(
+            ["git", "-C", str(raiz), "ls-files", "--error-unmatch", "--", rel],
+            capture_output=True,
+            timeout=10,
+        )
+        if rastreado.returncode != 0:
+            return False
+        movido = subprocess.run(
+            ["git", "-C", str(raiz), "mv", "--", rel, destino],
+            capture_output=True,
+            timeout=10,
+        )
+        return movido.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _trocar_ponteiros(claude: Path, prefixo: str, mes: str) -> list[str]:
+    """Troca, fora de cerca, todo ponteiro do CLAUDE.md que cita um mês fechado.
+
+    Ponteiro SEM âncora é "o diário corrente" e vai para o mês novo. Ponteiro COM âncora
+    cita uma entrada específica — ela não mudou de texto, mudou de lugar — e vai para
+    `arquivo/`. Exemplo dentro de cerca é ilustração e fica como está (mesma máscara que
+    a auditoria usa para decidir o que é ponteiro).
+
+    `newline=""` na leitura e na escrita: um CLAUDE.md com CRLF voltava com LF em toda
+    linha, e o diff da rotação vinha com o arquivo inteiro trocado.
+    """
+    with claude.open(encoding="utf-8", newline="") as f:
+        linhas = f.read().splitlines(keepends=True)
+    mascara = _mascara_de_cerca([x.rstrip("\r\n") for x in linhas])
+    padrao = _ponteiro_de_mes(prefixo)
+    trocas: list[str] = []
+
+    def trocar(m: re.Match[str]) -> str:
+        if m.group(1) >= mes:
+            return m.group(0)
+        nome = m.group(0)[len(prefixo) + 1 :].split("#")[0]
+        novo = f"{prefixo}/arquivo/{nome}{m.group(2)}" if m.group(2) else f"{prefixo}/{mes}.md"
+        trocas.append(f"CLAUDE.md: `{m.group(0)}` → `{novo}`")
+        return novo
+
+    saida = [
+        linha if cercada else padrao.sub(trocar, linha)
+        for linha, cercada in zip(linhas, mascara, strict=True)
+    ]
+    with claude.open("w", encoding="utf-8", newline="") as f:
+        f.write("".join(saida))
+    return trocas
 
 
 # --------------------------------------------------------------------------- #
