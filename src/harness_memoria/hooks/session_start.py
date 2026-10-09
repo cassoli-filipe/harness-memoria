@@ -59,6 +59,7 @@ try:
 
     import re  # noqa: E402
     from dataclasses import replace  # noqa: E402
+    from datetime import datetime  # noqa: E402
     from pathlib import Path  # noqa: E402
 
     from harness_memoria import adr, diario  # noqa: E402
@@ -122,6 +123,17 @@ SEPARADOR = "\n\n---\n\n"
 #: avisando é a política do projeto, e reprovar quem avisou seria o falso positivo que
 #: ensina a ignorar o cheque. `tests/test_session_start.py` reprova se a marca divergir.
 MARCA_DE_TRUNCAMENTO = "truncada; leia a entrada completa"
+
+#: Registros automáticos posteriores à entrada narrada, listados em uma linha cada. Cinco
+#: cobre uma semana de sessões não narradas a ~120 ch por linha (~600 ch na cota da
+#: entrada); acima disso o bloco diz quantos faltam, porque a CONTAGEM é o sinal útil —
+#: "8 sessões sem narrativa" pede `/encerrar-sessao`, não a lista das oito.
+MAX_AUTOMATICAS_NO_BLOCO = 5
+
+#: Trechos estáveis que `conferir_fidelidade` procura no bloco. Ao lado do texto que os
+#: produz, para que editar a frase sem editar o cheque não passe calado.
+ANUNCIO_DE_AUTOMATICAS = "registro(s) automático(s)"
+ANUNCIO_DE_ROTACAO = "Rotação do diário pendente"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -247,6 +259,10 @@ def _blocos(
     if reduzido:
         return [bloco_regras, bloco_becos]
 
+    # Aviso de rotação: peça FIXA como as invioláveis — uma linha que só existe enquanto há
+    # rotação mecânica a fazer, e que não tem como ceder pela metade.
+    bloco_aviso = _aviso_de_rotacao(raiz, cfg)
+
     # 3. O índice fica com o que sobrou, e o corte dele é em CHARS porque char é o que a
     #    plataforma conta. A moldura (a prosa do bloco) é medida pelo código que a escreve,
     #    com `9999` no lugar do total: o total real só é conhecido depois de ler os ADRs, e
@@ -255,13 +271,13 @@ def _blocos(
     teto_indice = None
     if teto is not None:
         gasto = _com_separador(bloco_regras) + _com_separador(bloco_becos)
-        gasto += _com_separador(bloco_entrada)
+        gasto += _com_separador(bloco_entrada) + _com_separador(bloco_aviso)
         teto_indice = teto - gasto - len(_bloco_do_indice(cfg, [], 9999, 0))
     linhas, total, nomeados = adr.indice_compactado(
         cfg.pasta_adr, cfg.adr.limite_indice, teto_indice
     )
     bloco_adr = _bloco_do_indice(cfg, linhas, total, nomeados)
-    return [bloco_entrada, bloco_becos, bloco_adr, bloco_regras]
+    return [bloco_aviso, bloco_entrada, bloco_becos, bloco_adr, bloco_regras]
 
 
 def _orcar(teto: int, natural: list[str], cfg: Config) -> tuple[int | None, int | None]:
@@ -292,9 +308,9 @@ def _orcar(teto: int, natural: list[str], cfg: Config) -> tuple[int | None, int 
         regras, _ = natural
         return 0, max(0, teto - _com_separador(regras) - len(SEPARADOR))
 
-    entrada, becos, indice, regras = natural
+    aviso, entrada, becos, indice, regras = natural
     reserva = min(PISO_DO_INDICE_CHARS, _com_separador(indice))
-    disponivel = max(0, teto - _com_separador(regras) - reserva)
+    disponivel = max(0, teto - _com_separador(regras) - _com_separador(aviso) - reserva)
     if _com_separador(entrada) + _com_separador(becos) <= disponivel:
         # A memória recente já cabe no que sobra: as duas ficam NATURAIS e o índice absorve
         # o excesso inteiro. É o caso comum de quem tem corpus grande de ADR.
@@ -379,7 +395,14 @@ def conferir_fidelidade(
 
     # 3. o recorte da entrada preserva as seções de retomada, que é o que o diário serve
     if cfg.diario.injetar_ultima_entrada:
-        ultima = diario.ultima_entrada(cfg.pasta_diario)
+        ultima, depois, narrada = _entrada_a_injetar(cfg)
+        # 3b. registro automático mais novo que a entrada injetada não some calado: sem o
+        #     anúncio, o bloco apresenta como "última" uma entrada que não é a última.
+        if narrada and depois and f"{len(depois)} {ANUNCIO_DE_AUTOMATICAS}" not in contexto_texto:
+            falhas.append(
+                f"{len(depois)} registro(s) automático(s) depois da entrada narrada e o "
+                f"bloco não os anuncia"
+            )
         if ultima:
             _, corpo = ultima
             _, secoes = diario.partir_em_secoes(corpo)
@@ -390,6 +413,11 @@ def conferir_fidelidade(
                         f"a seção '{alvo}' existe na última entrada e o recorte a descartou"
                     )
             falhas += _becos_perdidos(cfg, corpo, contexto_texto)
+
+    # 3c. rotação mecânica pendente chega ao agente — é o aviso que deixa o CI verde antes
+    #     do dia limite, em vez de vermelho depois dele.
+    if _plano_de_rotacao(raiz, cfg).mecanico and ANUNCIO_DE_ROTACAO not in contexto_texto:
+        falhas.append("rotação do diário pendente e o bloco não traz o aviso")
 
     # 4. toda inviolável extraída cabe numa linha. Estourar não trunca — reprova, porque
     #    meia proibição lê como permissão.
@@ -485,19 +513,83 @@ def _moldar_becos(cfg: Config, becos: list[str], total: int) -> str:
     )
 
 
+def _entrada_a_injetar(
+    cfg: Config,
+) -> tuple[tuple[str, str] | None, list[tuple[str, str]], bool]:
+    """`(entrada, registros automáticos depois dela, ela é narrada?)`.
+
+    A última entrada NARRADA, e não a última de qualquer tipo: medido neste repositório em
+    2026-10-09, o piso de "0 arquivo(s) escrito(s)" e "transcript_path ausente" ocupou o
+    slot e empurrou para fora a entrada do mesmo dia que tinha o porquê e o beco. Sem
+    entrada narrada nenhuma, o registro automático mais novo é melhor que nada.
+    """
+    narrada, depois = diario.ultima_narrada(cfg.pasta_diario)
+    if narrada is not None:
+        return narrada, depois, True
+    if depois:
+        return depois[0], [], False
+    return None, [], False
+
+
 def _bloco_da_entrada(cfg: Config, becos: list[str], cota: int | None) -> str:
-    ultima = diario.ultima_entrada(cfg.pasta_diario)
+    ultima, depois, narrada = _entrada_a_injetar(cfg)
     if not ultima:
         return ""
     nome, corpo = ultima
     onde = f"{cfg.diario.pasta}/{nome}"
-    cabecalho = f"## Memória do projeto — última entrada do diário (`{onde}`)\n\n"
+    if narrada:
+        cabecalho = f"## Memória do projeto — última entrada do diário (`{onde}`)\n\n"
+        cabecalho += _resumo_das_automaticas(depois)
+    else:
+        skill = cfg.diario.skill_de_encerramento or "/encerrar-sessao"
+        cabecalho = (
+            f"## Memória do projeto — última entrada do diário (`{onde}`, registro "
+            f"automático)\n\n> Nenhuma entrada narrada no diário: esta é o piso do hook de "
+            f"fim de sessão, sem o porquê nem os becos. Rode `{skill}` ao fim de uma sessão "
+            f"que mudou estado.\n\n"
+        )
     corpo = _apontar_becos_do_digest(corpo, becos, cfg)
     limite = cfg.diario.limite_injecao_chars
     if cota is not None:
         limite = max(0, min(limite, cota - len(cabecalho)))
     return cabecalho + diario.recortar_entrada(
         corpo, replace(cfg.diario, limite_injecao_chars=limite), onde
+    )
+
+
+def _resumo_das_automaticas(depois: list[tuple[str, str]]) -> str:
+    """O aviso de que a entrada narrada não é a última coisa que aconteceu."""
+    if not depois:
+        return ""
+    linhas = [
+        f"> Depois desta entrada, {len(depois)} {ANUNCIO_DE_AUTOMATICAS} do hook de fim de "
+        f"sessão (sem narrativa), do mais recente para o mais antigo:"
+    ]
+    linhas += [f"> - {diario.resumir_automatica(c)}" for _, c in depois[:MAX_AUTOMATICAS_NO_BLOCO]]
+    if len(depois) > MAX_AUTOMATICAS_NO_BLOCO:
+        linhas.append(f"> - … e mais {len(depois) - MAX_AUTOMATICAS_NO_BLOCO}")
+    return "\n".join(linhas) + "\n\n"
+
+
+def _plano_de_rotacao(raiz: Path, cfg: Config) -> diario.PlanoDeRotacao:
+    return diario.planejar_rotacao(raiz, cfg.diario, datetime.now())
+
+
+def _aviso_de_rotacao(raiz: Path, cfg: Config) -> str:
+    """Uma linha enquanto houver rotação MECÂNICA a fazer; nada no resto do mês.
+
+    Aponta a skill, não um comando: o hook não sabe se o consumidor roda a auditoria por
+    `uv run`, por venv ativo ou por `PYTHONPATH=src` (este repositório), e a skill sabe.
+    Só o mecânico gera aviso — um CLAUDE.md sem ponteiro nenhum repetiria esta linha em toda
+    sessão sem que nada pudesse resolvê-la sozinho.
+    """
+    plano = _plano_de_rotacao(raiz, cfg)
+    if not plano.mecanico:
+        return ""
+    return (
+        f"> **{ANUNCIO_DE_ROTACAO} ({plano.mes}):** {plano.descrever()}. Rode "
+        f"`/auditar-docs` — a auditoria com `--corrigir` faz a parte mecânica. O CI reprova "
+        f"a partir do dia {cfg.diario.dia_limite_rotacao}."
     )
 
 

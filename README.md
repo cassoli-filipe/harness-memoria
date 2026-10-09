@@ -199,7 +199,7 @@ truncado — meia proibição lê como permissão.
 
 ## O orçamento do bloco injetado
 
-O bloco do `session_start` (última entrada do diário + digest de becos + índice de ADR) tem
+O bloco do `session_start` (última entrada narrada do diário + digest de becos + índice de ADR) tem
 ORÇAMENTO: fecha em no máximo **10.000 chars**, porque é o teto que `additionalContext`
 aplica na plataforma instalada — sem esse limite, 14 de 40 sessões medidas num consumidor
 real chegavam com o bloco INTEIRO substituído por um preview truncado, porque o bloco
@@ -233,7 +233,7 @@ Seis scripts, sete registros em `hooks/hooks.json` (`session_start.py` atende do
 
 | Hook            | Evento                     | O que faz                                                          |
 | --------------- | --------------------------- | ------------------------------------------------------------------- |
-| `session_start` | SessionStart                | injeta última entrada do diário, digest de becos, índice de ADR — orçado para caber em 10.000 ch (ver acima) |
+| `session_start` | SessionStart                | injeta a última entrada **narrada** do diário (registros automáticos posteriores viram uma linha cada), digest de becos, índice de ADR e, se houver, o aviso de rotação pendente — orçado para caber em 10.000 ch (ver acima) |
 | `session_start` | SubagentStart                | injeta o bloco REDUZIDO (invioláveis + digest de becos, teto 6.000 ch) para o subagente que nunca leu a sessão principal |
 | `pre_compact`   | PreCompact                  | instrui o sumarizador a preservar invioláveis e IDs de ADR ANTES da compactação — stdout cru, custo de contexto ZERO |
 | `session_end`   | SessionEnd                  | grava o **piso determinístico** da sessão (arquivos, comandos, diffstat, ADRs tocados); narrativa por `claude -p` é **opt-in** (ver abaixo) |

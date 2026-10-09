@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -49,6 +50,19 @@ _PADRAO_MES = "[0-9][0-9][0-9][0-9]-[0-9][0-9]*.md"
 #: arquivo com `^## ` sem data.
 _FRONTEIRA_ENTRADA = re.compile(r"^(?=## \d{4}-\d{2}-\d{2})", re.MULTILINE)
 _DATA_DA_ENTRADA = re.compile(r"## (\d{4}-\d{2}-\d{2})")
+
+#: As marcas da entrada que o hook de fim de sessão grava SOZINHO (o piso). Constantes, e
+#: não literais dentro de `entrada_deterministica`, porque agora há dois lados do contrato:
+#: quem escreve e `e_automatica`, que decide o que o SessionStart injeta como "última
+#: entrada". Um literal editado de um lado só faria o piso voltar a ocupar o slot da
+#: entrada narrada — em silêncio, que foi como ele o ocupou da primeira vez.
+TITULO_AUTOMATICO = "Sessão registrada automaticamente"
+ESTADO_AUTOMATICO = "registro automático"
+
+#: Casado só no CABEÇALHO da entrada (antes do primeiro `###`) e com a linha inteira:
+#: entradas NARRADAS pelo hook levam no rodapé `<sub>Registro automático · branch …`, e uma
+#: entrada narrada pode citar a marca no corpo — nenhum dos dois é registro automático.
+_E_AUTOMATICA = re.compile(rf"^\*\*Estado:\*\* {ESTADO_AUTOMATICO}\s*$", re.MULTILINE)
 
 
 def forcar_utf8() -> None:
@@ -423,8 +437,61 @@ def arquivos_do_diario(pasta: Path) -> list[Path]:
     return saida
 
 
+def entradas(pasta: Path) -> Iterator[tuple[str, str]]:
+    """`(caminho_relativo, markdown)` de cada entrada, da mais recente para a mais antiga.
+
+    Atravessa os arquivos na ordem de `arquivos_do_diario` (topo, depois `arquivo/`) e lê um
+    arquivo de cada vez: quem só quer a primeira entrada paga um arquivo, não o diário todo.
+    """
+    for alvo in arquivos_do_diario(pasta):
+        try:
+            texto = alvo.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        rel = alvo.relative_to(pasta).as_posix()
+        for parte in reversed(_FRONTEIRA_ENTRADA.split(texto)[1:]):
+            yield rel, parte.strip()
+
+
+def e_automatica(bloco: str) -> bool:
+    """A entrada é o piso que o hook de fim de sessão gravou sem narrativa."""
+    cabecalho, _ = partir_em_secoes(bloco)
+    return bool(_E_AUTOMATICA.search(cabecalho))
+
+
+def ultima_narrada(
+    pasta: Path,
+) -> tuple[tuple[str, str] | None, list[tuple[str, str]]]:
+    """`(última entrada narrada | None, registros automáticos MAIS NOVOS que ela)`.
+
+    A lista vem da mais nova para a mais antiga. Sem nenhuma entrada narrada no diário, o
+    primeiro elemento é `None` e a lista traz todos os registros automáticos.
+    """
+    automaticas: list[tuple[str, str]] = []
+    for rel, corpo in entradas(pasta):
+        if not e_automatica(corpo):
+            return (rel, corpo), automaticas
+        automaticas.append((rel, corpo))
+    return None, automaticas
+
+
+def resumir_automatica(corpo: str) -> str:
+    """Uma linha para um registro automático: data e hora · escopo · ADRs tocados."""
+    titulo = corpo.splitlines()[0] if corpo else ""
+    m = re.match(r"## (\d{4}-\d{2}-\d{2}) — .*\((\d{2}:\d{2})\)\s*$", titulo)
+    quando = f"{m.group(1)} {m.group(2)}" if m else titulo.removeprefix("## ")
+    escopo = re.search(r"^\*\*Escopo:\*\* (.+)$", corpo, flags=re.MULTILINE)
+    adrs = re.search(r"^\*\*ADRs tocados:\*\* (.+)$", corpo, flags=re.MULTILINE)
+    partes = [quando]
+    if escopo:
+        partes.append(escopo.group(1).strip())
+    if adrs:
+        partes.append(f"ADRs: {adrs.group(1).strip()}")
+    return " · ".join(partes)
+
+
 def ultima_entrada(pasta: Path) -> tuple[str, str] | None:
-    """`(caminho_relativo, markdown)` da entrada mais recente do diário.
+    """`(caminho_relativo, markdown)` da entrada mais recente do diário, de qualquer tipo.
 
     Cai para o arquivo anterior — inclusive dentro de `arquivo/` — quando o arquivo do mês
     corrente existe mas ainda não tem entrada. Sem essa queda, todo dia entre a rotação do
@@ -436,16 +503,7 @@ def ultima_entrada(pasta: Path) -> tuple[str, str] | None:
     aqui a entrada mais VELHA — é por isso que a migração de um diário existente inverte a
     ordem em vez de ensinar as duas ao leitor.
     """
-    for alvo in arquivos_do_diario(pasta):
-        try:
-            texto = alvo.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        partes = _FRONTEIRA_ENTRADA.split(texto)
-        if len(partes) < 2:
-            continue  # só o cabeçalho do mês: ainda não há entrada aqui
-        return alvo.relative_to(pasta).as_posix(), partes[-1].strip()
-    return None
+    return next(entradas(pasta), None)
 
 
 def partir_em_secoes(corpo: str) -> tuple[str, list[tuple[str, str]]]:
@@ -800,10 +858,9 @@ def entrada_deterministica(
     adrs = ", ".join(adrs_tocados(escritos, pasta_adr, raiz)) or "—"
 
     linhas = [
-        f"## {quando.strftime('%Y-%m-%d')} — Sessão registrada automaticamente "
-        f"({quando.strftime('%H:%M')})",
+        f"## {quando.strftime('%Y-%m-%d')} — {TITULO_AUTOMATICO} ({quando.strftime('%H:%M')})",
         "",
-        "**Estado:** registro automático",
+        f"**Estado:** {ESTADO_AUTOMATICO}",
         f"**Escopo:** {len(escritos)} arquivo(s) escrito(s) · branch `{git['branch']}`",
         f"**ADRs tocados:** {adrs}",
         "",

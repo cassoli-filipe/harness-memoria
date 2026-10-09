@@ -11,8 +11,9 @@ narrativa da sessão — é o caminho primário para uma entrada rica, porque a 
 LLM no próprio hook não cabe no orçamento de tempo que a plataforma dá a um hook de plugin.
 Entrada escrita à mão também é bem-vinda.
 
-Quem lê: o hook `SessionStart` reinjeta a última entrada no início de cada sessão —
-inclusive depois de compactação de contexto — e, junto, um digest dos itens de **Tentativas
+Quem lê: o hook `SessionStart` reinjeta a última entrada **narrada** no início de cada
+sessão — inclusive depois de compactação de contexto; os registros automáticos do hook de fim
+de sessão posteriores a ela entram como uma linha cada — e, junto, um digest dos itens de **Tentativas
 descartadas** de todos os meses, inclusive de `arquivo/`. É por isso que o diário tem função
 em vez de ser arquivo morto.
 
