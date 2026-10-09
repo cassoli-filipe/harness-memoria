@@ -32,14 +32,16 @@ desde `docs/adr/0001-auto-hospedagem.md`.
 
 ### Qual ADR ler — por caminho que você vai tocar
 
-| Caminho                                      | ADRs             |
-| -------------------------------------------- | ---------------- |
-| `.claude/harness.json`                       | 0001             |
-| `docs/adr/`                                  | 0001             |
-| `docs/diario/`                               | 0001, 0005, 0006 |
-| `hooks/hooks.json`                           | 0002, 0003, 0004 |
-| `src/harness_memoria/hooks/session_end.py`   | 0002             |
-| `src/harness_memoria/hooks/reafirmar.py`     | 0003             |
-| `src/harness_memoria/hooks/session_start.py` | 0004, 0006       |
-| `src/harness_memoria/diario.py`              | 0002, 0005, 0006 |
-| `src/harness_memoria/auditar/`               | 0005             |
+| Caminho                                      | ADRs                   |
+| -------------------------------------------- | ---------------------- |
+| `.claude/harness.json`                       | 0001, 0007             |
+| `docs/adr/`                                  | 0001                   |
+| `docs/diario/`                               | 0001, 0005, 0006       |
+| `hooks/hooks.json`                           | 0002, 0003, 0004, 0007 |
+| `src/harness_memoria/hooks/session_end.py`   | 0002, 0007             |
+| `src/harness_memoria/hooks/reafirmar.py`     | 0003                   |
+| `src/harness_memoria/hooks/session_start.py` | 0004, 0006             |
+| `src/harness_memoria/hooks/verificar.py`     | 0007                   |
+| `src/harness_memoria/sensores.py`            | 0007                   |
+| `src/harness_memoria/diario.py`              | 0002, 0005, 0006, 0007 |
+| `src/harness_memoria/auditar/`               | 0005, 0007             |

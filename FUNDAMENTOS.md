@@ -127,7 +127,8 @@ src/harness_memoria/
 │   ├── pre_compact.py   (155)  instrui o sumarizador ANTES da compactação (PreCompact)
 │   ├── reafirmar.py     (258)  reinjeção intra-sessão a cada N escritas (async)
 │   ├── guardar.py       (491)  bloqueio determinístico (PreToolUse)
-│   └── formatar.py      (193)  formatação silenciosa (PostToolUse, async)
+│   ├── formatar.py      (193)  formatação silenciosa (PostToolUse, async)
+│   └── verificar.py            sensores do projeto antes de encerrar (Stop) — 2026-10, ADR-0007
 └── auditar/      (1.088) 20+ cheques genéricos + carregamento dos cheques do projeto
 ```
 
@@ -187,6 +188,11 @@ PreToolUse  (Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell)
 PostToolUse (Write|Edit|MultiEdit|NotebookEdit — dois registros com matchers quase iguais)
    ├─ formatar.py  (async, silencioso)
    └─ reafirmar.py (async — a cada 15 escritas, reinjeta as invioláveis; um turno de atraso)
+
+Stop (fim de cada turno — 2026-10, ADR-0007)
+   └─ verificar.py → se o turno escreveu arquivo que casa `sensores.comandos[].extensoes`,
+      roda os sensores em série; reprovação vira `decision: block` com a cauda da saída e a
+      remediação (até `max_bloqueios`), o resto falha aberto com `systemMessage`
 
 SessionEnd (clear|logout|prompt_input_exit|resume|other — os CINCO motivos do enum real,
             extraído do binário instalado; `resume` faltava e era metade dos encerramentos

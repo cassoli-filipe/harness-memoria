@@ -159,10 +159,20 @@ def apagar_contador(raiz: Path, sessao: str) -> None:
         caminho_contador(raiz, sessao).unlink(missing_ok=True)
 
 
-def _limpar_estado_velho(pasta: Path) -> None:
-    """Expira o CONTADOR de escritas por sessão — e só ele.
+#: Estado POR SESSÃO, com a validade de cada prefixo — o mapa que a docstring abaixo pedia
+#: para quando houvesse um segundo prefixo. O segundo chegou com os sensores (o estado de
+#: bloqueios por sessão do hook `Stop`), e a marca de projeto `diffstat_visto.txt` continua
+#: de fora, porque ela não expira.
+_ESTADO_QUE_EXPIRA: dict[str, int] = {
+    "escritas_*.txt": VALIDADE_ESTADO_DIAS,
+    "sensores_*.json": VALIDADE_ESTADO_DIAS,
+}
 
-    O glob é `escritas_*.txt` e **não pode virar `*.txt`**, por mais que "limpar o
+
+def _limpar_estado_velho(pasta: Path) -> None:
+    """Expira o estado POR SESSÃO (contador de escritas, bloqueios de sensor) — e só ele.
+
+    Os globs são os de `_ESTADO_QUE_EXPIRA` e **não podem virar `*.txt`**, por mais que "limpar o
     diretório de estado" pareça o gesto natural. `session_end` guarda ali
     `diffstat_visto.txt`, a impressão do worktree com que a última sessão do projeto
     terminou, e ela existe justamente para NÃO expirar: sem marca, a idade do diff é
@@ -175,13 +185,14 @@ def _limpar_estado_velho(pasta: Path) -> None:
     dia houver mais de um prefixo com validade própria, o certo é um mapa
     prefixo -> validade, não um glob que pega tudo.
     """
-    limite = time.time() - VALIDADE_ESTADO_DIAS * 86_400
-    for p in pasta.glob("escritas_*.txt"):
-        try:
-            if p.stat().st_mtime < limite:
-                p.unlink(missing_ok=True)
-        except OSError:
-            pass
+    for padrao, dias in _ESTADO_QUE_EXPIRA.items():
+        limite = time.time() - dias * 86_400
+        for p in pasta.glob(padrao):
+            try:
+                if p.stat().st_mtime < limite:
+                    p.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 # Nota sobre o bootstrap de `sys.path`: ele NÃO pode morar aqui. Este módulo importa

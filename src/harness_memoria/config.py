@@ -49,6 +49,7 @@ _CHAVES_TOPO = {
     "guardas",
     "formatadores",
     "auditoria",
+    "sensores",
 }
 
 
@@ -266,6 +267,33 @@ class ConfigAuditoria:
 
 
 @dataclass(frozen=True)
+class ConfigSensores:
+    """Comandos de VERIFICAÇÃO que o hook `Stop` roda depois que o turno escreveu código.
+
+    É o lado de feedback do harness: as outras peças lembram o agente do que vale antes de
+    agir; esta confere o que ele fez antes de ele dizer "pronto" (ADR-0007). Vazio por
+    padrão — quais testes e linters rodar é política do projeto, não do harness.
+    """
+
+    #: Cada item: {nome, comando, extensoes?, cwd?, exige?, timeout_s?, remediacao?,
+    #: bloquear?}. `comando` é argv (lista), sem shell. `extensoes` vazio = qualquer escrita.
+    #: `bloquear: false` só avisa — para adotar um sensor sem travar ninguém no primeiro dia.
+    comandos: tuple[dict, ...] = ()
+    #: Teto da SOMA dos sensores num disparo. Medido em 2026-10-09 (`claude -p` 2.1.295):
+    #: o `Stop` de plugin respeita o `timeout` do `hooks.json` (180 s) e um hook de 90 s
+    #: completa e bloqueia; 120 deixa 60 s de folga para import, git e o segundo disparo.
+    orcamento_total_s: int = 120
+    #: Bloqueios seguidos do mesmo sensor antes de liberar o encerramento. A plataforma
+    #: corta em 8 continuações; 3 dá ao agente duas tentativas de conserto e devolve a
+    #: palavra ao usuário antes de um loop que só queima turno.
+    max_bloqueios: int = 3
+    #: Quanto da saída do sensor volta ao agente. O que importa num pytest/ruff vermelho é o
+    #: FIM (o resumo e a última falha); o motivo inteiro fica abaixo de 8.000 ch, longe do
+    #: teto de 10.000 de `additionalContext`.
+    cauda_chars: int = 2_500
+
+
+@dataclass(frozen=True)
 class Config:
     raiz: Path
     projeto: str
@@ -274,6 +302,7 @@ class Config:
     reafirmacao: ConfigReafirmacao = field(default_factory=ConfigReafirmacao)
     guardas: ConfigGuardas = field(default_factory=ConfigGuardas)
     auditoria: ConfigAuditoria = field(default_factory=ConfigAuditoria)
+    sensores: ConfigSensores = field(default_factory=ConfigSensores)
     #: Lista, não dataclass: cada item é uma regra {extensoes, comando, cwd?, exige?} e o
     #: número de regras varia por projeto. Ver `hooks/formatar.py` para o contrato.
     formatadores: tuple[dict, ...] = ()
@@ -340,6 +369,9 @@ def carregar(raiz: Path) -> Config | None:
         ),
         auditoria=auditoria,
         formatadores=tuple(bruto.get("formatadores") or ()),
+        sensores=_validar_sensores(
+            _montar(ConfigSensores, bruto.get("sensores"), "sensores", p), p
+        ),
     )
 
 
@@ -363,7 +395,7 @@ _CHAVES_DE_REGRA: dict[str, frozenset[str]] = {
 #: parse e FUNCIONA, só não está exercitada. Lançar aqui cobrava caro demais por essa
 #: diferença — `_comum.contexto` engole `ErroDeConfig`, então o consumidor que atualizasse
 #: o plugin com uma regra de `comandos` sem `exemplo` (config que funcionava antes) ficaria
-#: com os SEIS hooks inertes: sem reinjeção, sem reafirmação e sem a guarda de `.env`, com
+#: com TODOS os hooks inertes: sem reinjeção, sem reafirmação e sem a guarda de `.env`, com
 #: o aviso indo para um stderr que ninguém lê. Regressão silenciosa no upgrade é o modo de
 #: falha que `auditar_config_versionada` existe para consertar. Reprovar o build é
 #: proporcional; desligar o harness não é.
@@ -399,6 +431,30 @@ def _validar_regras_de_guarda(g: ConfigGuardas, arquivo: Path) -> ConfigGuardas:
                     f"{sorted(desconhecidas)} — aceitas: {sorted(aceitas)}"
                 )
     return g
+
+
+#: Chaves aceitas em cada sensor — mesma razão de `_CHAVES_DE_REGRA`: `timeout` no lugar de
+#: `timeout_s` faria parse, e o sensor rodaria com o default sem ninguém saber.
+_CHAVES_DE_SENSOR = frozenset(
+    {"nome", "comando", "extensoes", "cwd", "exige", "timeout_s", "remediacao", "bloquear"}
+)
+
+#: Sem estas o sensor não roda — e, como nas guardas, isso é cobrado pela AUDITORIA
+#: (`auditar_sensores`), não pela carga: lançar aqui deixaria todos os hooks inertes.
+CHAVES_OBRIGATORIAS_DE_SENSOR = ("nome", "comando")
+
+
+def _validar_sensores(s: ConfigSensores, arquivo: Path) -> ConfigSensores:
+    for i, sensor in enumerate(s.comandos):
+        if not isinstance(sensor, dict):
+            raise ErroDeConfig(f"{arquivo}: `sensores.comandos[{i}]` deveria ser um objeto")
+        desconhecidas = {k for k in sensor if k not in _CHAVES_DE_SENSOR and not _e_anotacao(k)}
+        if desconhecidas:
+            raise ErroDeConfig(
+                f"{arquivo}: `sensores.comandos[{i}]` tem chave(s) desconhecida(s) "
+                f"{sorted(desconhecidas)} — aceitas: {sorted(_CHAVES_DE_SENSOR)}"
+            )
+    return s
 
 
 def _e_anotacao(chave: str) -> bool:

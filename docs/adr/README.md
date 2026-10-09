@@ -19,6 +19,7 @@ tabela — então uma tabela desatualizada não engana o agente, mas reprova o b
 | [0004](0004-orcamento-do-contexto-injetado.md)      | Orçar o bloco injetado pelo teto de 10.000 ch; SubagentStart reduzido     | proposed |
 | [0005](0005-auditor-corrige-o-mecanico.md)          | Deixar o auditor corrigir o que é mecânico (`--corrigir`)                 | proposed |
 | [0006](0006-reinjetar-a-ultima-entrada-narrada.md)  | Reinjetar a última entrada NARRADA e só resumir os registros automáticos  | proposed |
+| [0007](0007-sensores-no-stop.md)                    | Verificar o turno com sensores do projeto no hook `Stop`                  | proposed |
 
 ## Status
 
@@ -46,6 +47,7 @@ Supersessão é **bidirecional**: o novo declara `substitui:`, o antigo declara
 - **Hooks de sessão:** 0002, 0004, 0006
 - **Reafirmação:** 0003
 - **Auditoria:** 0005
+- **Sensores (verificação no loop):** 0007
 
 ## Regras
 

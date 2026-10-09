@@ -152,7 +152,7 @@ máquina dele, e cheque que não reprova nada é cheque que se aprende a ignorar
 ## Fase 6 — Verificar de verdade
 
 Primeiro, o pré-requisito que os hooks presumem e nada verificava até esta versão da skill —
-os sete registros de `hooks.json` (seis scripts) usam `"command": "python"`, nunca
+todos os registros de `hooks.json` usam `"command": "python"`, nunca
 `python3`, e em macOS ≥ 12.3 ou Debian/Ubuntu sem `python-is-python3` esse nome simplesmente
 não existe:
 

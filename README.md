@@ -122,11 +122,12 @@ Projected token cost
 ```
 
 **"no model context cost" é verdade para o REGISTRO dos hooks, e falso para a SAÍDA deles.**
-O CLI conta 6 porque lista *tipos de evento* (`hooks.json` tem 7 registros, 6 scripts
-distintos — `session_start.py` atende `SessionStart` e `SubagentStart`). Rodar o CÓDIGO de
-um hook não custa tokens, mas quatro dos seis produzem texto que a plataforma injeta no
-contexto — três como `additionalContext` e o `pre_compact` como `customInstructions` do
-sumarizador —, e isso entra na conta do modelo como qualquer outro texto:
+Na medição acima o CLI conta 6 porque lista *tipos de evento* (o `hooks.json` tinha então 7
+registros e 6 scripts distintos — `session_start.py` atende `SessionStart` e `SubagentStart`).
+Rodar o CÓDIGO de um hook não custa tokens, mas quatro deles produziam texto que a plataforma
+injeta no contexto — três como `additionalContext` e o `pre_compact` como
+`customInstructions` do sumarizador —, e desde 2026-10 o `verificar` (`Stop`) também, como o
+`reason` de um bloqueio. Isso entra na conta do modelo como qualquer outro texto:
 
 | Hook           | Quando emite            | Chars por disparo (medido)                          |
 | -------------- | ------------------------ | ---------------------------------------------------- |
@@ -168,8 +169,8 @@ inteiro.
 A auditoria faz o oposto: sem config ela **reprova**. Quem a roda pediu por ela, e um passo
 de CI verde que não auditou nada é o pior resultado possível para um cheque.
 
-**Pré-requisito silencioso: o nome `python` precisa resolver no PATH.** Os cinco (e agora
-seis) registros de `hooks.json` usam `"command": "python"`, nunca `python3` — no Windows o
+**Pré-requisito silencioso: o nome `python` precisa resolver no PATH.** Todos os
+registros de `hooks.json` usam `"command": "python"`, nunca `python3` — no Windows o
 instalador oficial não cria um `python3.exe`, então não há como usar as duas grafias. Em
 macOS ≥ 12.3 e em Debian/Ubuntu sem o pacote `python-is-python3`, `python` não existe: o
 hook não roda, o `.env` não é bloqueado, e nada avisa — é indistinguível do gate normal
@@ -229,7 +230,7 @@ que lê e não precisa do corpus inteiro para saber o que é proibido.
 
 ## Componentes
 
-Seis scripts, sete registros em `hooks/hooks.json` (`session_start.py` atende dois eventos):
+Os registros de `hooks/hooks.json` (`session_start.py` atende dois eventos):
 
 | Hook            | Evento                     | O que faz                                                          |
 | --------------- | --------------------------- | ------------------------------------------------------------------- |
@@ -240,6 +241,7 @@ Seis scripts, sete registros em `hooks/hooks.json` (`session_start.py` atende do
 | `reafirmar`     | PostToolUse (`async`)       | reafirma as invioláveis a cada N escritas                            |
 | `guardar`       | PreToolUse                  | bloqueia `.env`, `--no-verify`, `git add --force` e os caminhos proibidos do projeto |
 | `formatar`      | PostToolUse (`async`)       | roda os formatadores configurados no arquivo editado                 |
+| `verificar`     | Stop                        | quando o turno escreveu código, roda os **sensores** do projeto e, se algum reprovar, bloqueia o encerramento com a cauda da saída e o que fazer (ver abaixo) |
 
 | Skill               | Para quê                                            |
 | ------------------- | --------------------------------------------------- |
@@ -265,10 +267,35 @@ determinísticos, sem LLM) em ~421 ms medidos. `/encerrar-sessao` continua sendo
 recomendado para uma narrativa de qualidade: roda dentro da sessão, com contexto completo e
 sem orçamento de 1.500 ms.
 
+**Sensores: o turno só termina verificado.** O resto do harness diz ao agente o que vale;
+os sensores conferem o que ele fez (ADR-0007). No `.claude/harness.json` do consumidor:
+
+```json
+"sensores": {
+  "comandos": [
+    { "nome": "lint", "comando": ["uv", "run", "ruff", "check", "."], "extensoes": [".py"], "timeout_s": 30 },
+    { "nome": "testes", "comando": ["uv", "run", "pytest", "-x"], "extensoes": [".py"],
+      "timeout_s": 90, "remediacao": "Não marque teste como skip" }
+  ]
+}
+```
+
+Quando o turno escreveu um arquivo com uma das `extensoes` (vazio = qualquer escrita —
+inclusive por Bash ou subagente, que o hook vê pelo `git status` desde o início do turno),
+o hook `Stop` roda os comandos em série e, se algum reprovar, devolve `decision: block` com
+a cauda da saída e a `remediacao`: o agente continua o turno em vez de dizer "pronto". Depois
+de `max_bloqueios` (3) tentativas seguidas o encerramento é liberado e a falha vai para o
+piso do diário, em "Falhas observadas". Falha aberta em tudo que não é reprovação do sensor
+(timeout, executável ausente). `bloquear: false` só avisa, para adotar sem travar ninguém;
+`HARNESS_MEMORIA_SENSORES=0` desliga sem mexer na config. `comando` é argv, sem shell — e
+sem `-q` no pytest se o projeto já o tem no `addopts`, porque `-q -q` some com o resumo de
+falhas, que é justamente a cauda que volta ao agente. Medido em 2026-10-09: o `Stop` de
+plugin respeita o `timeout` do `hooks.json` (180 s), ao contrário do `SessionEnd`.
+
 Cada hook tem `--autoteste`, roda sem o Claude Code e é o que o CI executa:
 
 ```bash
-for h in session_start session_end reafirmar guardar formatar pre_compact; do
+for h in session_start session_end reafirmar guardar formatar pre_compact verificar; do
   python "src/harness_memoria/hooks/$h.py" --autoteste --projeto /caminho/do/projeto
 done
 ```
@@ -304,7 +331,7 @@ uv run ruff check . && uv run ruff format --check .
 Zero dependências em runtime, e isso é requisito: os hooks rodam com o `python` do PATH,
 fora do venv do projeto consumidor.
 
-`requires-python = ">=3.10"` — medido rodando a auditoria e os seis autotestes com o
-3.10.11 desta máquina, todos aprovados; nenhum módulo usa API 3.11+. Não é `>=3.11` porque
+`requires-python = ">=3.10"` — medido rodando a auditoria e os autotestes de hook (então
+seis) com o 3.10.11 desta máquina, todos aprovados; nenhum módulo usa API 3.11+. Não é `>=3.11` porque
 esse número nunca correspondeu a nada no código e bloqueava `uv add` num consumidor em
 3.10, versão comum de produção.

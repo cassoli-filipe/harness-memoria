@@ -69,6 +69,20 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/harness_memoria/hooks/verificar.py"],
+            "timeout": 180,
+            "statusMessage": "Rodando os sensores do projeto"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",

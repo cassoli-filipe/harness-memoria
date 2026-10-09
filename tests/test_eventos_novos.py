@@ -201,14 +201,15 @@ def _alvos(hk: dict) -> list[tuple[str, str, dict]]:
 
 
 def test_numero_de_alvos_bate_com_o_que_o_ci_espera():
-    """Mesma conta do job `manifestos` (`.github/workflows/ci.yml`, `if alvos != 7`).
+    """Mesma conta do job `manifestos` (`.github/workflows/ci.yml`, `if alvos != 8`).
 
     5 (linha de base) + 1 (`PreCompact`, mudança 10.1) + 1 (`SubagentStart`, mudança 10.2,
-    reusa `session_start.py` — não é arquivo novo) = 7. `ci.yml` não é meu: o número novo
-    vai reportado, não editado aqui.
+    reusa `session_start.py` — não é arquivo novo) + 1 (`Stop` → `verificar.py`, ADR-0007)
+    = 8. Este teste e o job são os ÚNICOS lugares onde o número vive; a prosa diz "todo
+    hook", porque número escrito em prosa envelhece no hook seguinte.
     """
     alvos = _alvos(_hooks_json())
-    assert len(alvos) == 7, alvos
+    assert len(alvos) == 8, alvos
 
 
 def test_precompact_aponta_para_o_script_novo_com_o_matcher_de_trigger():
