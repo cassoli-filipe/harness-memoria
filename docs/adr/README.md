@@ -11,9 +11,14 @@ Este índice é auditado contra os arquivos: todo ADR precisa estar listado aqui
 arquivo. O que o hook `SessionStart` injeta no contexto vem dos **arquivos**, não desta
 tabela — então uma tabela desatualizada não engana o agente, mas reprova o build.
 
-| ADR                              | Título                                              | Status   |
-| --------------------------------- | ---------------------------------------------------- | -------- |
-| [0001](0001-auto-hospedagem.md)   | Auto-hospedar o harness de memória neste repositório | accepted |
+| ADR                                                | Título                                                                    | Status   |
+| -------------------------------------------------- | ------------------------------------------------------------------------- | -------- |
+| [0001](0001-auto-hospedagem.md)                     | Auto-hospedar o harness de memória neste repositório                      | accepted |
+| [0002](0002-piso-deterministico-no-session-end.md)  | Gravar o piso determinístico no SessionEnd e deixar a narrativa opt-in    | proposed |
+| [0003](0003-reafirmacao-async.md)                   | Rodar a reafirmação intra-sessão como hook async                          | proposed |
+| [0004](0004-orcamento-do-contexto-injetado.md)      | Orçar o bloco injetado pelo teto de 10.000 ch; SubagentStart reduzido     | proposed |
+| [0005](0005-auditor-corrige-o-mecanico.md)          | Deixar o auditor corrigir o que é mecânico (`--corrigir`)                 | proposed |
+| [0006](0006-reinjetar-a-ultima-entrada-narrada.md)  | Reinjetar a última entrada NARRADA e só resumir os registros automáticos  | proposed |
 
 ## Status
 
@@ -38,6 +43,9 @@ Supersessão é **bidirecional**: o novo declara `substitui:`, o antigo declara
      o mesmo peso. A auditoria verifica. -->
 
 - **Harness (auto-hospedagem):** 0001
+- **Hooks de sessão:** 0002, 0004, 0006
+- **Reafirmação:** 0003
+- **Auditoria:** 0005
 
 ## Regras
 
