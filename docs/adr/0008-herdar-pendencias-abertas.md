@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: implemented
 data: 2026-10-09
 ---
 
@@ -98,6 +98,9 @@ auditoria exigir a seção, não tirar a herança. Revisitar também se o diári
 formato de pendência que não seja `- [ ]` dentro de `### Aberto / Próximo passo`.
 
 ## Plano de Implementação
+
+Implementado no commit "Herdar os itens abertos quando a última entrada narrada não traz a
+lista". Aprovado pelo usuário em 2026-10-09.
 
 - **Arquivos a tocar:** `src/harness_memoria/diario.py` (`SECAO_ABERTO`, `aberto_herdado`),
   `src/harness_memoria/hooks/session_start.py` (`_entrada_a_injetar`,

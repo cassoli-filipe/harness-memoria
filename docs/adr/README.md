@@ -20,7 +20,7 @@ tabela — então uma tabela desatualizada não engana o agente, mas reprova o b
 | [0005](0005-auditor-corrige-o-mecanico.md)          | Deixar o auditor corrigir o que é mecânico (`--corrigir`)                 | implemented |
 | [0006](0006-reinjetar-a-ultima-entrada-narrada.md)  | Reinjetar a última entrada NARRADA e só resumir os registros automáticos  | implemented |
 | [0007](0007-sensores-no-stop.md)                    | Verificar o turno com sensores do projeto no hook `Stop`                  | implemented |
-| [0008](0008-herdar-pendencias-abertas.md)          | Herdar os itens abertos quando a última narrada não traz a lista          | proposed    |
+| [0008](0008-herdar-pendencias-abertas.md)          | Herdar os itens abertos quando a última narrada não traz a lista          | implemented |
 
 ## Status
 
