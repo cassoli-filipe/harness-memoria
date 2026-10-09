@@ -21,7 +21,7 @@ tabela — então uma tabela desatualizada não engana o agente, mas reprova o b
 | [0006](0006-reinjetar-a-ultima-entrada-narrada.md)  | Reinjetar a última entrada NARRADA e só resumir os registros automáticos  | implemented |
 | [0007](0007-sensores-no-stop.md)                    | Verificar o turno com sensores do projeto no hook `Stop`                  | implemented |
 | [0008](0008-herdar-pendencias-abertas.md)          | Herdar os itens abertos quando a última narrada não traz a lista          | implemented |
-| [0009](0009-adr-por-caminho-no-pretooluse.md)      | Injetar no PreToolUse de escrita os ADRs do mapa por caminho              | proposed    |
+| [0009](0009-adr-por-caminho-no-pretooluse.md)      | Injetar no PreToolUse de escrita os ADRs do mapa por caminho              | implemented |
 
 ## Status
 

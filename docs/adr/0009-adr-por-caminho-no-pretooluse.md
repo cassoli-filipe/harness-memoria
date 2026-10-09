@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: implemented
 data: 2026-10-09
 ---
 
@@ -130,6 +130,9 @@ mesmo. Se a medição de uma sessão longa mostrar que o agente ignora o bloco, 
 alavanca é a `## Regra` em todos os ADRs mapeados, não repetir a injeção.
 
 ## Plano de Implementação
+
+Implementado no commit "Injetar no PreToolUse de escrita os ADRs que o mapa por caminho
+aponta". Aprovado pelo usuário em 2026-10-09.
 
 - **Arquivos a tocar:** `src/harness_memoria/adr.py` (`mapa_por_caminho`,
   `contexto_por_caminho`), `src/harness_memoria/auditar/__init__.py` (usar
