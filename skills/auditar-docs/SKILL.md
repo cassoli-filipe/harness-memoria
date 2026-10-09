@@ -60,6 +60,23 @@ retrofita os anteriores, e corpo de ADR aceito é imutável.
 **`mapa de ADR por caminho: ... não existe`** — o mapa da seção "Qual ADR ler" do CLAUDE.md
 apodreceu. Corrija o caminho ou remova a linha. Mapa que apodrece é pior que mapa nenhum.
 
+**`mapa de ADR por caminho: ... aponta N ADRs`** (aviso, não reprova) — a linha cobre uma área
+grande com ADRs demais. Desde o ADR-0009 o agente recebe os ADRs da linha ao editar um arquivo
+dela, e uma linha de 58 ADRs chega aos pedaços, ao longo de ~10 edições, quase toda sem relação
+com o arquivo editado. Rode a auditoria com `--propor-mapa` no lugar das outras opções: ela
+imprime um rascunho que divide a linha pelas pastas e arquivos que cada ADR cita, e separa o
+que precisa de julgamento. Quem decide é você com o usuário:
+- **arquivo solto** (ex.: uma migração específica): em geral é o registro daquela mudança, não
+  regra para o próximo arquivo da pasta — fica fora, salvo se restringe arquivo novo;
+- **sem caminho, "também em `X`"**: já está na linha da própria funcionalidade. Se não
+  restringe o código desta linha, sai dela e continua no mapa — quem edita esta pasta é que
+  deixa de recebê-lo;
+- **sem caminho e em nenhuma outra linha**: ou é regra geral da pasta (fica numa linha só com
+  a pasta) ou não pertence ao mapa.
+
+Mostre o rascunho e a sua proposta ao usuário antes de mexer no mapa: ele é política do
+projeto. Depois de aplicar, rode a auditoria de novo — caminho que não existe reprova.
+
 **`invioláveis: item com N chars`** — a primeira frase de uma inviolável não cabe em uma
 linha. Encurte **a primeira frase** no CLAUDE.md; o resto do raciocínio continua no item.
 Não trunque na config: só a primeira frase entra na reafirmação, e meia proibição lê como

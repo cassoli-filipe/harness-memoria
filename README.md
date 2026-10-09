@@ -78,6 +78,13 @@ quando o arquivo do mês novo já existe (aviso até o dia 3, falha depois) — 
 entrada automática do mês criava o arquivo novo e a auditoria passava com o mês velho fora de
 `arquivo/` e o ponteiro defasado.
 
+**`--propor-mapa` imprime um rascunho do mapa "Qual ADR ler" e não audita.** Desde o ADR-0009
+o agente recebe, ao editar um arquivo, os ADRs que o mapa aponta para o caminho; uma linha que
+cobre uma pasta grande com mais de 10 ADRs entrega regras sem relação com o arquivo, aos
+pedaços, e a auditoria avisa. `uv run python -m harness_memoria.auditar --propor-mapa` divide
+cada linha assim pelas pastas e arquivos que os ADRs citam e lista à parte o que precisa de
+julgamento. Não escreve nada: o mapa é política do projeto.
+
 ## Editar o harness
 
 **Commit é o que publica, inclusive na fonte `directory`.** Medido em 2026-08-04: mesmo

@@ -565,7 +565,8 @@ def auditar_mapa_de_adr_por_caminho(ctx: Contexto) -> None:
                 f"CLAUDE.md, mapa de ADR por caminho: {', '.join(f'`{c}`' for c in caminhos)} "
                 f"aponta {len(numeros)} ADRs — o PreToolUse entrega de 4 a 9 por escrita "
                 f"(ADR-0009), então os últimos só chegam depois de várias escritas no caminho. "
-                f"Divida a linha por subpasta ou deixe nela só os ADRs que restringem esse código"
+                f"Divida a linha por subpasta ou deixe nela só os ADRs que restringem esse código "
+                f"— a auditoria com `--propor-mapa` imprime um rascunho da divisão"
             )
         for caminho in caminhos:
             if not (ctx.raiz / caminho).exists():
