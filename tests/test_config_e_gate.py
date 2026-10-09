@@ -8,6 +8,7 @@ agindo dentro de outro — que é o defeito exato que motivou tirar a política 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,14 @@ from harness_memoria.config import (
 )
 
 HOOKS = Path(__file__).resolve().parents[1] / "src" / "harness_memoria" / "hooks"
+
+
+#: Mesma defesa de `test_hooks_quentes.py`: `CLAUDE_PROJECT_DIR` ganha do `cwd` do evento em
+#: `config.raiz_projeto`, e numa sessão do Claude Code ela aponta para este repositório — que
+#: tem `harness.json`. Medido em 2026-10-09: o sensor `testes` do hook `Stop` herda a
+#: variável, e a guarda num projeto "sem config" negava o `.env` com a config DESTE repo.
+def _env_sem_projeto() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
 
 
 # --------------------------------------------------------------------------- #
@@ -124,6 +133,7 @@ def test_guarda_nao_bloqueia_env_sem_config(tmp_path: Path):
         text=True,
         encoding="utf-8",
         cwd=str(raiz),
+        env=_env_sem_projeto(),
     )
     assert "deny" not in r.stdout
 
@@ -144,6 +154,7 @@ def test_guarda_bloqueia_env_com_config(projeto: Path):
         text=True,
         encoding="utf-8",
         cwd=str(projeto),
+        env=_env_sem_projeto(),
     )
     assert "deny" in r.stdout
 
@@ -360,6 +371,7 @@ def _bloqueou(raiz: Path, comando: str) -> bool:
         text=True,
         encoding="utf-8",
         cwd=str(raiz),
+        env=_env_sem_projeto(),
     )
     return "deny" in r.stdout
 
