@@ -9,5 +9,18 @@
   ],
   "auditoria": {
     "fontes_operacionais_extras": ["FUNDAMENTOS.md"]
+  },
+  "sensores": {
+    "$comment": "ADR-0007. `lint` antes de `testes`: o ruff responde em menos de 1 s e a falha dele é a mais barata de corrigir; a suíte mede ~7 s.",
+    "comandos": [
+      { "nome": "lint", "comando": ["uv", "run", "ruff", "check", "."], "extensoes": [".py"], "timeout_s": 30 },
+      {
+        "nome": "testes",
+        "comando": ["uv", "run", "pytest", "-x"],
+        "extensoes": [".py"],
+        "timeout_s": 90,
+        "remediacao": "Não marque teste como skip nem afrouxe a asserção para passar"
+      }
+    ]
   }
 }

@@ -56,7 +56,14 @@ def test_chave_desconhecida_dentro_de_secao_reprova(projeto: Path):
 
 @pytest.mark.parametrize(
     "hook",
-    ["session_start.py", "session_end.py", "reafirmar.py", "guardar.py", "formatar.py"],
+    [
+        "session_start.py",
+        "session_end.py",
+        "reafirmar.py",
+        "guardar.py",
+        "formatar.py",
+        "verificar.py",
+    ],
 )
 def test_hook_e_inerte_em_projeto_sem_config(tmp_path: Path, hook: str):
     """Nenhum hook escreve, bloqueia ou injeta num projeto que não pediu o harness.

@@ -33,7 +33,7 @@ from harness_memoria.hooks.guardar import avaliar
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 HOOKS = SRC / "harness_memoria" / "hooks"
-QUENTES = ("guardar.py", "reafirmar.py", "formatar.py")
+QUENTES = ("guardar.py", "reafirmar.py", "formatar.py", "verificar.py")
 
 
 def _evento(raiz: Path, ferramenta: str = "Write", **entrada: str) -> str:

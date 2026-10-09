@@ -261,7 +261,7 @@ def test_regra_de_comandos_sem_exemplo_carrega(projeto: Path):
     de um `if exemplo`, então sem a chave a guarda do projeto não é exercitada em lugar
     nenhum. O que mudou é o SINAL. Lançar aqui era regressão no upgrade: `_comum.contexto`
     engole `ErroDeConfig`, então o consumidor com uma regra sem `exemplo` — config que
-    fazia parse e funcionava — ficaria com os SEIS hooks inertes só por atualizar o
+    fazia parse e funcionava — ficaria com TODOS os hooks inertes só por atualizar o
     plugin, sem reinjeção, sem reafirmação e sem a guarda de `.env`, com o aviso indo para
     um stderr que ninguém lê.
 
@@ -356,7 +356,7 @@ def test_projeto_sem_pasta_de_rules_fica_em_silencio(projeto: Path):
 
 
 # --------------------------------------------------------------------------- #
-# `raiz_projeto`: 0 de 10 instruções cobertas, e os seis hooks começam por ela
+# `raiz_projeto`: 0 de 10 instruções cobertas, e todo hook começa por ela
 # --------------------------------------------------------------------------- #
 
 

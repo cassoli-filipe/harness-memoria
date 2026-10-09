@@ -64,7 +64,7 @@ _ERRO_DE_BOOTSTRAP: str | None = None
 try:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-    from harness_memoria import diario  # noqa: E402
+    from harness_memoria import diario, sensores  # noqa: E402
     from harness_memoria.adr import adrs_tocados  # noqa: E402
     from harness_memoria.config import Config  # noqa: E402
     from harness_memoria.hooks import _comum as C  # noqa: E402
@@ -225,6 +225,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---- 3. fatos determinísticos (o piso do registro) ----------------------
     fatos = diario.fatos_do_transcript(evento.get("transcript_path"))
+    # O sensor que ficou vermelho na sessão vem PRIMEIRO nas falhas: é o fato mais próximo
+    # de um beco que o piso conhece — o código terminou a sessão sem passar na verificação
+    # do próprio projeto (ADR-0007). Estado do hook `Stop`, um arquivo pequeno no temp.
+    fatos["falhas"] = (
+        sensores.falhas_para_o_diario(raiz, str(evento.get("session_id") or "")) + fatos["falhas"]
+    )
     git = diario.fatos_do_git(raiz)
     # A marca é LIDA antes de ser regravada: é o retrato de como a sessão anterior deste
     # projeto deixou o worktree, e é a única data que o `diffstat` tem. O autoteste não

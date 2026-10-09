@@ -53,7 +53,7 @@ jobs:
           PYTHONPATH: src
 
   autotestes:
-    name: Autoteste dos seis hooks contra um projeto de verdade
+    name: Autoteste dos hooks contra um projeto de verdade
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -142,14 +142,16 @@ jobs:
       # O autoteste do session_start confere FIDELIDADE, não só que o hook roda: reprova se
       # o índice de ADR chegar cortado sem se declarar cortado, se um ADR morto aparecer sem
       # apontar substituto, ou se o recorte da entrada do diário descartar as seções de
-      # retomada. `formatar` é o sexto e é DECLARATIVO aqui, não corretivo: este job só tem
+      # retomada. `formatar` é DECLARATIVO aqui, não corretivo: este job só tem
       # `actions/setup-python` (sem `uv sync`), então `ruff` nunca está no PATH e a linha do
       # formatar sempre imprime "ausente no PATH" — o cheque que MORDE (ruff de verdade) é
-      # `uv run ruff format --check .` no job `testes`, que tem o venv.
-      - name: Autoteste dos cinco hooks + estado do formatar
+      # `uv run ruff format --check .` no job `testes`, que tem o venv. `verificar` (sensores
+      # do `Stop`) também é declarativo aqui: o template não configura sensor nenhum, então
+      # ele só confirma que fica inerte — o caminho que bloqueia é exercitado pela suíte.
+      - name: Autoteste dos hooks + estado do formatar
         run: |
           set -euo pipefail
-          for h in session_start session_end reafirmar guardar formatar pre_compact; do
+          for h in session_start session_end reafirmar guardar formatar pre_compact verificar; do
             echo "--- $h"
             python "src/harness_memoria/hooks/$h.py" --autoteste --projeto /tmp/proj
           done
@@ -160,13 +162,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/alheio && printf '# Outro projeto\n' > /tmp/alheio/CLAUDE.md
-          for h in session_start session_end reafirmar guardar formatar pre_compact; do
+          for h in session_start session_end reafirmar guardar formatar pre_compact verificar; do
             saida=$(echo '{"cwd":"/tmp/alheio","tool_name":"Write","session_id":"s","reason":"clear","tool_input":{"file_path":"/tmp/alheio/.env"}}' \
               | python "src/harness_memoria/hooks/$h.py")
             if [ -n "$saida" ]; then echo "FALHA: $h produziu saída em projeto sem config: $saida"; exit 1; fi
           done
           if [ -d /tmp/alheio/docs ]; then echo "FALHA: um hook criou docs/ num projeto sem config"; exit 1; fi
-          echo "ok — os seis hooks são inertes sem harness.json"
+          echo "ok — todos os hooks são inertes sem harness.json"
       # O outro lado do gate: rc=0 com stdout vazio é exatamente o que um hook MORTO
       # também devolve, então o cheque acima não distingue "gate funcionando" de "guardar
       # parou de rodar". `CLAUDE_PROJECT_DIR=/tmp/proj` não é decoração — sem ela o
@@ -221,11 +223,13 @@ jobs:
                           rel = arg.replace("${CLAUDE_PLUGIN_ROOT}/", "")
                           if not Path(rel).exists():
                               falhas.append(f"hooks.json ({evento}) aponta para `{rel}`, que não existe")
-          # 7, não 5: SubagentStart (reusa session_start.py, bloco reduzido) e PreCompact
-          # entraram na onda 4. `alvos` conta REGISTRO em hooks.json, não script distinto
-          # — são 6 arquivos (session_start é referenciado duas vezes).
-          if alvos != 7:
-              falhas.append(f"esperava 7 hooks referenciados, achei {alvos}")
+          # 8: SubagentStart (reusa session_start.py, bloco reduzido) e PreCompact entraram na
+          # onda 4, e Stop (verificar.py, sensores — ADR-0007) em 2026-10. `alvos` conta
+          # REGISTRO em hooks.json, não script distinto (session_start é referenciado duas
+          # vezes). Este número e o de `tests/test_eventos_novos.py` são os únicos lugares
+          # onde a contagem vive — a prosa diz "todo hook".
+          if alvos != 8:
+              falhas.append(f"esperava 8 hooks referenciados, achei {alvos}")
 
           for d in Path("skills").iterdir():
               if not (d / "SKILL.md").exists():

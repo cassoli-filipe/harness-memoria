@@ -783,7 +783,10 @@ def linhas_de_falhas(falhas: list[dict]) -> list[str]:
     linhas = []
     for (tipo, alvo, detalhe), n in contagem.items():
         vezes = f" (×{n})" if n > 1 else ""
-        if tipo == "comando":
+        if tipo == "sensor":
+            situacao = detalhe.replace("não resolvido", "**não resolvido**")
+            linhas.append(f"- sensor `{alvo}` {situacao}{vezes}")
+        elif tipo == "comando":
             linhas.append(f"- comando `{alvo}` saiu com {detalhe}{vezes}")
         elif tipo == "guarda":
             linhas.append(f"- guarda negou `{alvo}`: {detalhe}{vezes}")

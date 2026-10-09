@@ -39,6 +39,7 @@ from ..adr import (
 )
 from ..config import (
     CHAVES_OBRIGATORIAS_DE_REGRA,
+    CHAVES_OBRIGATORIAS_DE_SENSOR,
     Config,
     _mascara_de_cerca,
     caminho_config,
@@ -892,8 +893,8 @@ def auditar_guardas(ctx: Contexto) -> None:
     numa regra continua lançando `ErroDeConfig` na leitura — não tem interpretação válida
     nenhuma e aparece na hora em que alguém escreve a config. Chave obrigatória AUSENTE é
     outra coisa: produz uma config que faz parse e funciona, só com uma regra que não age.
-    Lançar por isso significava `_comum.contexto` engolindo o erro e deixando os SEIS
-    hooks inertes — sem reinjeção, sem reafirmação e sem a guarda de `.env` — no consumidor
+    Lançar por isso significava `_comum.contexto` engolindo o erro e deixando TODOS
+    os hooks inertes — sem reinjeção, sem reafirmação e sem a guarda de `.env` — no consumidor
     que só atualizou o plugin, com o aviso indo para um stderr que ninguém lê. Reprovar o
     build é proporcional; desligar o harness em cima de uma config que funcionava não é.
 
@@ -931,12 +932,60 @@ def auditar_guardas(ctx: Contexto) -> None:
                     )
 
 
+def auditar_sensores(ctx: Contexto) -> None:
+    """Todo sensor declarado consegue rodar — e roda como quem o escreveu esperava.
+
+    Um sensor que não roda é pior que nenhum: o hook `Stop` libera o encerramento e a
+    config continua afirmando que o código é verificado. Executável ausente NÃO é cobrado
+    aqui, porque o PATH do CI não é o da máquina de quem desenvolve; é o `--autoteste` do
+    hook que diz, na máquina onde ele vai rodar.
+    """
+    cfg = ctx.cfg.sensores
+    onde_config = ctx.rel(caminho_config(ctx.raiz))
+    vistos: set[str] = set()
+    for i, sensor in enumerate(cfg.comandos):
+        if not isinstance(sensor, dict):
+            continue  # `carregar()` já reprovou
+        nome = str(sensor.get("nome") or "").strip()
+        onde = f"{onde_config}: `sensores.comandos[{i}]`" + (f", `{nome}`" if nome else "")
+        for chave in CHAVES_OBRIGATORIAS_DE_SENSOR:
+            if not sensor.get(chave):
+                ctx.falhar(f"{onde} não declara `{chave}` — o sensor não roda")
+        comando = sensor.get("comando")
+        if comando and not (
+            isinstance(comando, list) and all(isinstance(x, str) and x for x in comando)
+        ):
+            ctx.falhar(
+                f"{onde}: `comando` tem de ser uma lista de strings (argv, sem shell), "
+                f'como `["uv", "run", "pytest", "-x", "-q"]`'
+            )
+        elif comando and any("{arquivo" in x for x in comando):
+            ctx.falhar(
+                f"{onde}: `comando` usa `{{arquivo}}`, que sensor não substitui — sensor "
+                f"verifica o PROJETO; formatar o arquivo editado é papel de `formatadores`"
+            )
+        if nome and nome in vistos:
+            ctx.falhar(f"{onde}: nome duplicado — o estado de bloqueios é por nome")
+        vistos.add(nome)
+        timeout = sensor.get("timeout_s", 60)
+        if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+            ctx.falhar(f"{onde}: `timeout_s` tem de ser um inteiro positivo")
+        elif timeout > cfg.orcamento_total_s:
+            ctx.falhar(
+                f"{onde}: `timeout_s` {timeout} passa de `sensores.orcamento_total_s` "
+                f"({cfg.orcamento_total_s}) — o sensor seria sempre pulado"
+            )
+        cwd = sensor.get("cwd")
+        if cwd and not (ctx.raiz / str(cwd)).is_dir():
+            ctx.falhar(f"{onde}: `cwd` aponta para `{cwd}`, que não existe")
+
+
 def auditar_config_versionada(ctx: Contexto) -> None:
     """O `harness.json` não pode estar no `.gitignore`.
 
     A presença desse arquivo é o gate do harness. Se ele fica de fora do versionamento, o
     projeto passa a ter dois comportamentos: na máquina de quem o criou, o harness funciona;
-    em qualquer checkout novo — o runner do CI, outra máquina, outra pessoa — os seis hooks
+    em qualquer checkout novo — o runner do CI, outra máquina, outra pessoa — todos os hooks
     ficam **silenciosamente** inertes e a auditoria reprova acusando que o projeto nunca
     adotou o harness. Diagnóstico enganoso, e o pior modo de falha que este desenho tem.
 
@@ -1059,6 +1108,7 @@ CHECKS_GENERICOS = (
     auditar_harness,
     auditar_skill_de_encerramento,
     auditar_guardas,
+    auditar_sensores,
     auditar_config_versionada,
 )
 
