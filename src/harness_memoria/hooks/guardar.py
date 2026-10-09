@@ -162,7 +162,8 @@ try:
     import posixpath  # noqa: E402
     import re  # noqa: E402
 
-    from harness_memoria.config import ConfigGuardas  # noqa: E402
+    from harness_memoria import adr  # noqa: E402
+    from harness_memoria.config import Config, ConfigGuardas  # noqa: E402
     from harness_memoria.hooks import _comum as C  # noqa: E402
 except Exception as e:  # noqa: BLE001 — pacote inconsistente não derruba a sessão
     _ERRO_DE_BOOTSTRAP = f"{type(e).__name__}: {e}"
@@ -191,11 +192,10 @@ def main(argv: list[str] | None = None) -> int:
     ctx = C.contexto(evento, ROTULO)
     if ctx is None:
         return 0
-    _, cfg = ctx
+    raiz, cfg = ctx
 
-    motivo = avaliar(
-        str(evento.get("tool_name") or ""), evento.get("tool_input") or {}, cfg.guardas
-    )
+    ferramenta = str(evento.get("tool_name") or "")
+    motivo = avaliar(ferramenta, evento.get("tool_input") or {}, cfg.guardas)
     if motivo:
         print(
             json.dumps(
@@ -209,7 +209,52 @@ def main(argv: list[str] | None = None) -> int:
                 ensure_ascii=False,
             )
         )
+        return 0
+    if ferramenta in FERRAMENTAS_DE_ESCRITA and cfg.adr.injetar_por_caminho:
+        _entregar_adrs_do_caminho(raiz, cfg, evento)
     return 0
+
+
+def _entregar_adrs_do_caminho(raiz, cfg: Config, evento: dict) -> None:
+    """ADR-0009: os ADRs que o mapa "Qual ADR ler" aponta para o arquivo desta escrita.
+
+    Mora neste processo, e não num hook próprio, porque este já roda síncrono em toda
+    escrita: um segundo `PreToolUse` seria outro interpretador com o pacote inteiro
+    importado para ler o mesmo evento. Medido aqui, p25 de n=30 contra a versão sem isto:
+    +0,6 ms fora do mapa, +2,0 ms em caminho já visto, +2,8 ms na primeira vez (21,5 ms).
+    Roda DEPOIS da decisão de bloqueio e não a toca — escrita negada só recebe a negação.
+    Uma vez por agente (`agent_id`) e por sessão; o `SessionStart` de compactação zera a
+    lista.
+    """
+    entrada = evento.get("tool_input")
+    caminho = isinstance(entrada, dict) and (
+        entrada.get("file_path") or entrada.get("notebook_path")
+    )
+    if not isinstance(caminho, str) or not caminho:
+        return
+    try:
+        rel = os.path.relpath(os.path.realpath(caminho), os.path.realpath(raiz))
+    except ValueError:  # outro drive, no Windows
+        return
+    rel = posixpath.normpath(rel.replace("\\", "/"))
+    if rel == ".." or rel.startswith("../"):
+        return
+    try:
+        mapa = adr.mapa_por_caminho((raiz / "CLAUDE.md").read_text(encoding="utf-8"))
+    except OSError:
+        return
+    nums = adr.adrs_do_caminho(mapa or [], rel, raiz)
+    if not nums:
+        return
+    sessao = str(evento.get("session_id") or "sem-sessao")
+    agente = str(evento.get("agent_id") or "")
+    vistos = C.ler_adrs_vistos(raiz, sessao, agente)
+    texto, mostrados = adr.contexto_por_caminho(
+        raiz, cfg.pasta_adr, [n for n in nums if n not in vistos], rel
+    )
+    if texto:
+        C.emitir_contexto("PreToolUse", texto)
+        C.marcar_adrs_vistos(raiz, sessao, agente, mostrados)
 
 
 def avaliar(ferramenta: str, entrada: dict, g: ConfigGuardas) -> str | None:
