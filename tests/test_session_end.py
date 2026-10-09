@@ -843,6 +843,74 @@ def test_mexer_no_readme_do_diario_nao_dispensa_o_piso(projeto: Path, tmp_path: 
     assert _entradas(projeto) == 2, r.stderr
 
 
+def _uma_escrita(raiz: Path) -> list[str]:
+    """A sessão mudou estado: sem isto o piso nem seria gravado, e o teste passaria calado."""
+    return [str(raiz / "scripts" / "checar.py")]
+
+
+def _entrada_pelo_shell(destino: str) -> str:
+    mes = datetime.now().strftime("%Y-%m")
+    return (
+        f"cat >> {destino} <<'EOF'\n\n## {mes}-09 — Entrada escrita pelo shell\n\n"
+        "**Estado:** concluído\nEOF"
+    )
+
+
+def test_entrada_escrita_pelo_shell_dispensa_o_piso(projeto: Path, tmp_path: Path):
+    """Medido em 2026-10-09 neste repositório: as entradas narradas foram escritas com
+    `cat >> docs/diario/2026-10.md <<'EOF'`, o hook não reconheceu a escrita e anexou o
+    piso por cima — e o piso é a entrada de menor informação."""
+    binf, _ = _claude_falso(tmp_path)
+    mes = datetime.now().strftime("%Y-%m")
+    tr = _transcript(
+        tmp_path, _uma_escrita(projeto), [_entrada_pelo_shell(f"docs/diario/{mes}.md")]
+    )
+
+    r, _ = _rodar(projeto, _evento(projeto, tr), binf)
+
+    assert _entradas(projeto) == 1, r.stderr
+    assert "já registrou" in r.stderr
+
+
+def test_tee_com_caminho_absoluto_tambem_conta(projeto: Path, tmp_path: Path):
+    binf, _ = _claude_falso(tmp_path)
+    cmd = f"printf '## x' | tee -a '{_mes(projeto)}' >/dev/null"
+    tr = _transcript(tmp_path, _uma_escrita(projeto), [cmd])
+
+    r, _ = _rodar(projeto, _evento(projeto, tr), binf)
+
+    assert _entradas(projeto) == 1, r.stderr
+
+
+def test_ler_o_diario_pelo_shell_nao_dispensa_o_piso(projeto: Path, tmp_path: Path):
+    """O diário como ORIGEM não é registro: `cat diario > copia` lê, não escreve nele."""
+    binf, _ = _claude_falso(tmp_path)
+    mes = datetime.now().strftime("%Y-%m")
+    comandos = [
+        f"grep -n '^## ' docs/diario/{mes}.md",
+        f"cat docs/diario/{mes}.md > /tmp/copia.md",
+        f"tail -5 docs/diario/{mes}.md >> notas.md",
+    ]
+    tr = _transcript(tmp_path, _uma_escrita(projeto), comandos)
+
+    r, _ = _rodar(projeto, _evento(projeto, tr), binf)
+
+    assert _entradas(projeto) == 2, r.stderr
+
+
+def test_heredoc_que_so_cita_a_escrita_no_diario_nao_dispensa(projeto: Path, tmp_path: Path):
+    """O corpo do heredoc é dado, não comando: uma nota que ENSINA a escrever no diário não
+    é escrita nele."""
+    binf, _ = _claude_falso(tmp_path)
+    mes = datetime.now().strftime("%Y-%m")
+    cmd = f"cat > notas.txt <<'EOF'\npara registrar: cat >> docs/diario/{mes}.md\nEOF"
+    tr = _transcript(tmp_path, _uma_escrita(projeto), [cmd])
+
+    r, _ = _rodar(projeto, _evento(projeto, tr), binf)
+
+    assert _entradas(projeto) == 2, r.stderr
+
+
 def test_entrada_em_mes_arquivado_tambem_conta(projeto: Path, tmp_path: Path):
     """`arquivos_do_diario` varre `arquivo/`, então uma correção lá também é registro."""
     from harness_memoria.hooks import session_end as se

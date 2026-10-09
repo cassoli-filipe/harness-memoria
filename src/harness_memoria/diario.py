@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import ConfigDiario, _mascara_de_cerca
+from .shell import alvos_de_escrita
 
 #: A seção de maior retorno do diário: é o que impede o próximo agente de repetir um beco
 #: sem saída já explorado. Nome fixo de propósito — é o contrato entre quem escreve
@@ -844,6 +845,9 @@ def fatos_do_transcript(caminho: str | None) -> dict:
         "ferramentas": {},
         "arquivos_escritos": [],
         "comandos": [],
+        # Alvos de `>`/`>>`/`tee` dos comandos, crus (relativos ao cwd da sessão). Fora de
+        # `arquivos_escritos` de propósito: aquele alimenta o piso, cujo formato não muda.
+        "arquivos_escritos_por_shell": [],
         "turnos_usuario": 0,
         "primeiro_pedido": "",
         "excerto": "",
@@ -890,8 +894,11 @@ def fatos_do_transcript(caminho: str | None) -> dict:
                             fatos["arquivos_escritos"].append(fp)
                     elif nome in ("Bash", "PowerShell"):
                         cmd = entrada.get("command")
-                        if isinstance(cmd, str):
+                        if isinstance(cmd, str) and cmd.strip():
                             fatos["comandos"].append(cmd.strip().splitlines()[0][:200])
+                            for alvo in alvos_de_escrita(cmd):
+                                if alvo not in fatos["arquivos_escritos_por_shell"]:
+                                    fatos["arquivos_escritos_por_shell"].append(alvo)
 
                 papel = obj.get("role") or (obj.get("message") or {}).get("role") or obj.get("type")
                 texto = _texto_de(obj)

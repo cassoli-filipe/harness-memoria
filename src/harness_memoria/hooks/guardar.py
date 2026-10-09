@@ -165,6 +165,7 @@ try:
     from harness_memoria import adr  # noqa: E402
     from harness_memoria.config import Config, ConfigGuardas  # noqa: E402
     from harness_memoria.hooks import _comum as C  # noqa: E402
+    from harness_memoria.shell import sem_corpo_de_heredoc as _sem_corpo_de_heredoc  # noqa: E402
 except Exception as e:  # noqa: BLE001 — pacote inconsistente não derruba a sessão
     _ERRO_DE_BOOTSTRAP = f"{type(e).__name__}: {e}"
 
@@ -346,49 +347,6 @@ def _sob_prefixo(caminho_baixo: str, prefixo: str) -> bool:
 #: roda fora da rede e estoura com `NameError` quando o que quebrou foi o próprio `_leve`.
 #: `test_leve_quebrado_reporta_a_causa_e_nao_a_consequencia` pegou exatamente isso (rc=1 em
 #: vez de 0) na primeira versão deste helper.
-_ABRE_HEREDOC = r"<<-?\s*(?P<q>['\"]?)(?P<marca>[A-Za-z_]\w*)(?P=q)"
-
-
-def _sem_corpo_de_heredoc(comando: str) -> str:
-    """O comando sem os CORPOS de heredoc — eles são dado no stdin, não comando.
-
-    Mesma razão do `_LITERAL`, e o caso que criou isto é o mesmo defeito uma camada
-    adiante: `_avaliar_comando` faz `" ".join(comando.split())`, o que achata o heredoc
-    inteiro numa linha só, então uma mensagem de commit que CITA a flag proibida vira
-    comando aos olhos da regex. Aconteceu de verdade ao commitar a correção anterior deste
-    arquivo: `git commit -F - <<'MSG'` com o texto que explica o bloqueio foi BLOQUEADO, e
-    a mensagem sugeria corrigir a causa de um hook que não estava falhando. Falso positivo
-    em bloqueio empurra para `guardas.universais: false`, que desliga as três guardas.
-
-    Descarta só o CORPO. A linha de abertura fica, e é o que faz `cat > .env <<'X'`
-    continuar bloqueado por `_escrita_de_env_por_shell` — o alvo do redirecionamento está
-    antes do `<<`, não dentro dele.
-
-    Heredoc sem terminador consome até o fim de propósito: nesse caso o shell também
-    trataria as linhas seguintes como corpo, então elas nunca seriam executadas como
-    comando. Descartar é o que corresponde ao que o shell faz.
-
-    O que isto NÃO faz: inspecionar conteúdo. Um projeto que precise proibir texto dentro
-    de heredoc está pedindo cheque de conteúdo, não de comando, e o lugar disso é
-    `guardas.caminhos` sobre o arquivo escrito.
-    """
-    linhas = comando.splitlines()
-    saida: list[str] = []
-    i = 0
-    while i < len(linhas):
-        linha = linhas[i]
-        saida.append(linha)
-        m = re.search(_ABRE_HEREDOC, linha)
-        i += 1
-        if not m:
-            continue
-        marca = m.group("marca")
-        while i < len(linhas) and linhas[i].strip() != marca:
-            i += 1
-        i += 1  # descarta também a linha do terminador
-    return "\n".join(saida)
-
-
 def _um_comando_por_segmento(comando: str) -> str:
     """Newline vira `;`, porque no shell ela É separador de comando — e as regras contam.
 
