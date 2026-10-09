@@ -328,6 +328,10 @@ uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
 
+As skills têm evals do `claude plugin eval` em `evals/` — disparo, falso disparo e resultado
+de `/novo-adr` e `/encerrar-sessao`. Rodam à mão, não no CI, porque cada caso é uma sessão
+real na sua credencial; os comandos e o porquê estão em [`evals/README.md`](evals/README.md).
+
 Zero dependências em runtime, e isso é requisito: os hooks rodam com o `python` do PATH,
 fora do venv do projeto consumidor.
 

@@ -20,3 +20,7 @@ build/
 # medido em 2026-10-09: `ruff format --check` passou de 48 para 97 arquivos com um agente
 # rodando.
 .claude/worktrees/
+
+# Resultados das evals (`claude plugin eval`): um diretório por execução, com relatório HTML e
+# JSON — artefato de medição, não fonte.
+evals/results/
